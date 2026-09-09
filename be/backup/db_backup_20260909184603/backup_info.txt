@@ -1,0 +1,63 @@
+backup_timestamp=20260909184603
+backup_started_at=2026-09-09T09:46:03Z
+backup_host=kkhui-MacBookPro.local
+backup_source=local_docker
+backup_format=postgresql_plain_sql_gzip
+container_count=6
+
+[ai-chat-service-pg]
+postgres_user=root
+postgres_database=ai_chat_service_db
+postgres_server_version=postgres (PostgreSQL) 18.3 (Debian 18.3-1.pgdg13+1)
+pg_dump_version=pg_dump (PostgreSQL) 18.3 (Debian 18.3-1.pgdg13+1)
+backup_file=ai-chat-service-pg.sql.gz
+backup_format=plain_sql_gzip
+backup_size=100K
+
+[event-receiver-pg]
+postgres_user=root
+postgres_database=event_receiver_db
+postgres_server_version=postgres (PostgreSQL) 18.3 (Debian 18.3-1.pgdg13+1)
+pg_dump_version=pg_dump (PostgreSQL) 18.3 (Debian 18.3-1.pgdg13+1)
+backup_file=event-receiver-pg.sql.gz
+backup_format=plain_sql_gzip
+backup_size=4.0K
+
+[action-runner-pg]
+postgres_user=root
+postgres_database=action_runner_db
+postgres_server_version=postgres (PostgreSQL) 18.3 (Debian 18.3-1.pgdg13+1)
+pg_dump_version=pg_dump (PostgreSQL) 18.3 (Debian 18.3-1.pgdg13+1)
+backup_file=action-runner-pg.sql.gz
+backup_format=plain_sql_gzip
+backup_size=4.0K
+
+[report-manager-pg]
+postgres_user=root
+postgres_database=report_manager_db
+postgres_server_version=postgres (PostgreSQL) 18.3 (Debian 18.3-1.pgdg13+1)
+pg_dump_version=pg_dump (PostgreSQL) 18.3 (Debian 18.3-1.pgdg13+1)
+backup_file=report-manager-pg.sql.gz
+backup_format=plain_sql_gzip
+backup_size=4.0K
+
+[event-analyzer-pg]
+postgres_user=root
+postgres_database=event_analyzer_db
+postgres_server_version=postgres (PostgreSQL) 18.3 (Debian 18.3-1.pgdg13+1)
+pg_dump_version=pg_dump (PostgreSQL) 18.3 (Debian 18.3-1.pgdg13+1)
+backup_file=event-analyzer-pg.sql.gz
+backup_format=plain_sql_gzip
+backup_size=4.0K
+
+[config-manager-pg]
+postgres_user=root
+postgres_database=config_manager_db
+postgres_server_version=postgres (PostgreSQL) 18.3 (Debian 18.3-1.pgdg13+1)
+pg_dump_version=pg_dump (PostgreSQL) 18.3 (Debian 18.3-1.pgdg13+1)
+backup_file=config-manager-pg.sql.gz
+backup_format=plain_sql_gzip
+backup_size=4.0K
+
+backup_finished_at=2026-09-09T09:46:06Z
+backup_status=success

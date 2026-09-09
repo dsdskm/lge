@@ -1,0 +1,6 @@
+39e468c5db2bb1e37104e24ddbd74aff5458fdbabea07966b6bb576de6f30fef  ./action-runner-pg.sql.gz
+cdfd15270b54ba3397324e11a092d3806718d06170340d390e5029658f2c2095  ./ai-chat-service-pg.sql.gz
+30296274bbc86477d731d2a621f1b9039e7b516af11fdfef95e83fcc9304b23b  ./config-manager-pg.sql.gz
+2b78409e73834ab69069ec518480ff6e301f4c77d03eabe073dc1072226a0780  ./event-analyzer-pg.sql.gz
+d98b845b684070763d0894e6243046dc90422c072098ec20cc3a449258936c8b  ./event-receiver-pg.sql.gz
+c8ea60a170c5dd447e5faf6a8dd4c2a87a4d6c9a5977cd349beff429f9ef844b  ./report-manager-pg.sql.gz
