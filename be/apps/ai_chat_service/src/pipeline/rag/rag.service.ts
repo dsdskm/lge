@@ -366,7 +366,7 @@ export class RagService {
     message: string,
     history: ChatTurn[] = [],
     reqId = '-',
-    options?: { intentType?: RagIntentType },
+    options?: { intentType?: RagIntentType; appKey?: string; screenKey?: string },
   ): Promise<{ text: string; usedCollection?: string; primaryChunkKey?: string; usedChunks: string[]; ragScores: RagScoreEntry[] }> {
     const names = Array.isArray(collectionNames) ? collectionNames : [collectionNames]
     const targetChunkKeys = Array.from(new Set(chunkKeys.map((k) => String(k ?? '').trim()).filter(Boolean)))
@@ -390,16 +390,17 @@ export class RagService {
       .join('\n\n')
 
     const promptStore = getPromptStore()
-    const commonInstructionMeta = promptStore?.getPromptMeta('common', CHAT_PROMPT_TYPE.instruction)
     const { promptType, meta: commonRagMeta, prompt: commonRag } = this.getRagPrompt(options?.intentType)
-    const commonInstruction = commonInstructionMeta?.prompt ?? ''
+    // instruction 은 common -> 앱 -> 화면 순으로 합친다.
+    const instructionSources = promptStore?.describeInstructionSources(options?.appKey, options?.screenKey) ?? '-'
+    const commonInstruction = promptStore?.getInstruction(options?.appKey, options?.screenKey) ?? ''
     const system = [commonInstruction, commonRag, context].filter(Boolean).join('\n\n')
 
     this.logger.log?.(
       `================= [3-3-2단계:RAG_청크강제폴백] [reqId=${reqId}] chunkKeys=${JSON.stringify(targetChunkKeys)} matchedChunks=${JSON.stringify(usedChunkIds)} collections=${JSON.stringify(uniqueCollections)}`,
     )
     this.logger.log(
-      `######## 적용 프롬프트 아이디 ########\n[reqId=${reqId}] [stage=rag-answer-from-chunk-keys]\n- common/instruction: ${commonInstructionMeta?.id ?? '-'}\n- common/${promptType}: ${commonRagMeta?.id ?? '-'}\n######################################`,
+      `######## 적용 프롬프트 아이디 ########\n[reqId=${reqId}] [stage=rag-answer-from-chunk-keys]\n- instruction(common+app+screen): ${instructionSources}\n- common/${promptType}: ${commonRagMeta?.id ?? '-'}\n######################################`,
     )
 
     logLlmPromptMeta({
@@ -407,7 +408,7 @@ export class RagService {
       promptType,
       route: usedCollection ?? null,
       appKey: String(usedCollection ?? '').split('/').filter(Boolean)[0] || null,
-      promptId: commonRagMeta?.id ?? commonInstructionMeta?.id ?? null,
+      promptId: commonRagMeta?.id ?? null,
       systemPromptLen: system.length,
       messageLen: String(message ?? '').length,
       historyTurns: history.length,
@@ -441,7 +442,7 @@ export class RagService {
     message: string,
     history: ChatTurn[] = [],
     reqId = '-',
-    options?: { intentType?: RagIntentType },
+    options?: { intentType?: RagIntentType; appKey?: string; screenKey?: string },
   ): Promise<{ text: string; usedCollection?: string; primaryChunkKey?: string; usedChunks: string[]; ragScores: RagScoreEntry[] }> {
     const names = Array.isArray(collectionNames) ? collectionNames : [collectionNames]
     const intentLabel = options?.intentType ?? 'all'
@@ -469,9 +470,10 @@ export class RagService {
       .join('\n\n')
 
     const promptStore = getPromptStore()
-    const commonInstructionMeta = promptStore?.getPromptMeta('common', CHAT_PROMPT_TYPE.instruction)
     const { promptType, meta: commonRagMeta, prompt: commonRag } = this.getRagPrompt(options?.intentType)
-    const commonInstruction = commonInstructionMeta?.prompt ?? ''
+    // instruction 은 common -> 앱 -> 화면 순으로 합친다.
+    const instructionSources = promptStore?.describeInstructionSources(options?.appKey, options?.screenKey) ?? '-'
+    const commonInstruction = promptStore?.getInstruction(options?.appKey, options?.screenKey) ?? ''
 
     const ragSystem = context
 
@@ -487,10 +489,10 @@ export class RagService {
       `================= [3-4단계:RAG_프롬프트생성_추적] [reqId=${reqId}] commonInstructionApplied=${Boolean(commonInstruction)} systemLen=${system.length}`,
     )
     this.logger.log(
-      `######## 적용 프롬프트 아이디 ########\n[reqId=${reqId}] [stage=rag-answer]\n- common/instruction: ${commonInstructionMeta?.id ?? '-'}\n- common/${promptType}: ${commonRagMeta?.id ?? '-'}\n######################################`,
+      `######## 적용 프롬프트 아이디 ########\n[reqId=${reqId}] [stage=rag-answer]\n- instruction(common+app+screen): ${instructionSources}\n- common/${promptType}: ${commonRagMeta?.id ?? '-'}\n######################################`,
     )
     this.logger.log(
-      `[rag-diagnosis] [reqId=${reqId}] stage=prompt commonInstructionPromptId=${commonInstructionMeta?.id ?? '-'} ${promptType}PromptId=${commonRagMeta?.id ?? '-'} message=${JSON.stringify(message)} selectedChunks=${JSON.stringify(matchedChunks.map((row) => ({ collection: row.collection, id: row.chunk.id, title: row.chunk.title, body: row.chunk.body })))} commonInstruction=${JSON.stringify(commonInstruction)} ragPrompt=${JSON.stringify(commonRag)} system=${JSON.stringify(system)}`,
+      `[rag-diagnosis] [reqId=${reqId}] stage=prompt instructionSources=${instructionSources} ${promptType}PromptId=${commonRagMeta?.id ?? '-'} message=${JSON.stringify(message)} selectedChunks=${JSON.stringify(matchedChunks.map((row) => ({ collection: row.collection, id: row.chunk.id, title: row.chunk.title, body: row.chunk.body })))} commonInstruction=${JSON.stringify(commonInstruction)} ragPrompt=${JSON.stringify(commonRag)} system=${JSON.stringify(system)}`,
     )
 
     // this.logger.log(`[ragService] system ${system}`)
@@ -500,7 +502,7 @@ export class RagService {
       promptType,
       route: usedCollection ?? null,
       appKey: String(usedCollection ?? '').split('/').filter(Boolean)[0] || null,
-      promptId: commonRagMeta?.id ?? commonInstructionMeta?.id ?? null,
+      promptId: commonRagMeta?.id ?? null,
       systemPromptLen: system.length,
       messageLen: String(message ?? '').length,
       historyTurns: history.length,

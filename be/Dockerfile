@@ -52,6 +52,15 @@ ENV CHAT_INFO_RAG_MIN_SCORE=${CHAT_INFO_RAG_MIN_SCORE}
 ENV CHAT_INFO_RAG_SCREEN_BONUS=${CHAT_INFO_RAG_SCREEN_BONUS}
 ENV CHAT_INFO_NODE_GUIDE_FALLBACK_CHUNK_KEYS=${CHAT_INFO_NODE_GUIDE_FALLBACK_CHUNK_KEYS}
 
+# 배포 확인용. GET /health 가 이 값을 그대로 돌려주므로 어떤 빌드가 떠 있는지 URL 로 확인할 수 있다.
+#   예: docker build --build-arg BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --build-arg GIT_COMMIT="$(git rev-parse --short HEAD)" .
+ARG BUILD_TIME=""
+ARG GIT_COMMIT=""
+ARG APP_VERSION=""
+ENV BUILD_TIME=${BUILD_TIME}
+ENV GIT_COMMIT=${GIT_COMMIT}
+ENV APP_VERSION=${APP_VERSION}
+
 # 빌드 결과물 전체(소스+node_modules+dist) 복사
 #   pnpm workspace 심볼릭 링크 구조를 유지하기 위해 통째로 가져온다.
 COPY --from=build /app /app

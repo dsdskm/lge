@@ -52,24 +52,51 @@ export class ChatLogService {
 
   /**
    * 대화기록 저장. 저장 실패가 채팅 응답을 막지 않도록 예외를 삼킨다.
+   *
+   * 덤프 복원 뒤 id 시퀀스가 max(id) 보다 작게 남으면 PK 충돌로 INSERT 가 계속 실패한다.
+   * 그 경우 "채팅 내역이 안 쌓인다" 로만 보이므로, 한 번은 시퀀스를 맞춰 다시 시도한다.
    */
   async save(input: ChatLogInput): Promise<void> {
     try {
-      const entity = this.repo.create({
-        author: input.author,
-        conversationId: input.conversationId,
-        currentApp: input.currentApp,
-        currentPath: input.currentPath,
-        chatAction: input.chatAction,
-        userMessage: input.userMessage,
-        assistantText: input.assistantText,
-        debugMeta: input.debugMeta,
-      })
-      const saved = await this.repo.save(entity)
-      this.logger.log(`[db] insert chat_log OK id=${saved.id} action=${input.chatAction}`)
+      await this.insert(input)
     } catch (e: any) {
-      this.logger.error(`[db] insert chat_log FAILED err=${e?.message ?? String(e)}`)
+      const message = String(e?.message ?? e)
+      const isDuplicateId = e?.code === '23505' || /duplicate key value/i.test(message)
+
+      if (!isDuplicateId) {
+        this.logger.error(`[db] insert chat_log FAILED err=${message}`)
+        return
+      }
+
+      this.logger.warn(`[db] insert chat_log PK 충돌. id 시퀀스를 max(id) 로 맞추고 재시도한다. err=${message}`)
+      try {
+        await this.resyncIdSequence()
+        await this.insert(input)
+      } catch (retryError: any) {
+        this.logger.error(`[db] insert chat_log FAILED after resync err=${retryError?.message ?? String(retryError)}`)
+      }
     }
+  }
+
+  private async insert(input: ChatLogInput): Promise<void> {
+    const entity = this.repo.create({
+      author: input.author,
+      conversationId: input.conversationId,
+      currentApp: input.currentApp,
+      currentPath: input.currentPath,
+      chatAction: input.chatAction,
+      userMessage: input.userMessage,
+      assistantText: input.assistantText,
+      debugMeta: input.debugMeta,
+    })
+    const saved = await this.repo.save(entity)
+    this.logger.log(`[db] insert chat_log OK id=${saved.id} action=${input.chatAction}`)
+  }
+
+  private async resyncIdSequence(): Promise<void> {
+    await this.repo.query(
+      "SELECT setval(pg_get_serial_sequence('chat_log', 'id'), GREATEST((SELECT COALESCE(MAX(id), 0) FROM chat_log), 1), (SELECT COALESCE(MAX(id), 0) FROM chat_log) > 0)",
+    )
   }
 
   async list(query: ChatLogListQuery = {}): Promise<ChatLogEntity[]> {

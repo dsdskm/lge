@@ -75,6 +75,26 @@ describe('ChatOrchestrator taskflow routing guard', () => {
     )).toBe(true)
   })
 
+  it('treats a multi-clause action sentence as a taskflow edit request even if a content name contains 설명', () => {
+    const orchestrator = new ChatOrchestrator(client, 256, pipeline)
+    // 룰 테이블 최신값(sql/20260909_ai_chat_taskflow_nl_compose.sql)과 같게 둔다.
+    const rules = {
+      ...classifierRules,
+      explanationBlockKeywords: ['설명해줘', '설명해 줘', '설명 좀', '어떻게 쓰는지', '예시 알려', '사용법'],
+      explanationKeywords: ['설명해줘', '설명해 줘', '설명 좀', '예시 알려', '사용법', '어떻게 쓰', '가이드 알려'],
+      actionRequestKeywords: [...classifierRules.actionRequestKeywords, '발화', '인사', '돌아오게'],
+    }
+
+    expect((orchestrator as any).looksLikeTaskflowEditMessage(
+      '도슨트 환영 장소 이동해서 1.인트로 발화하고 도슨트 안내 장소로 이동해서 2.TV 구조도 설명1 발화 해줘. 그리고 작별 인사하고 도슨트 대기 장소로 돌아오게 해줘',
+      rules,
+      ['도슨트 환영 장소', '1.인트로', '2.TV 구조도 설명1'],
+    )).toBe(true)
+
+    // 사용법 질문은 그대로 info 로 남아야 한다.
+    expect((orchestrator as any).looksLikeTaskflowEditMessage('Parallel 노드 사용법 알려줘', rules, [])).toBe(false)
+  })
+
   it('matches nothing when the rule table has no phrases for the screen', () => {
     const orchestrator = new ChatOrchestrator(client, 1024, pipeline, { log: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as any)
 

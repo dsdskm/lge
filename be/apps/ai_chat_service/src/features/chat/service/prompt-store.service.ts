@@ -234,6 +234,43 @@ export class PromptStoreService implements OnModuleInit {
     return row.prompt
   }
 
+  /** instruction 은 intent-classifier 와 같은 규칙으로 common -> 앱 -> 화면 순으로 이어 붙인다.
+   * 앱이나 화면에만 적어 둔 지시가 무시되지 않게 하려는 것이고, 없는 단계는 그냥 빠진다.
+   */
+  getInstruction(appKey?: string, screenKey?: string): string {
+    const app = String(appKey ?? '').trim()
+    const screen = String(screenKey ?? '').trim()
+    // 화면 키가 "tms/taskflows/..." 처럼 오면 앱을 못 받은 경우에도 앞 조각으로 채운다.
+    const effectiveApp = app || screen.replace(/^\/+/, '').split('/').filter(Boolean)[0] || ''
+
+    const keys = ['common', effectiveApp, screen]
+      .map((key) => String(key ?? '').trim())
+      .filter(Boolean)
+      .filter((key, index, list) => list.indexOf(key) === index)
+
+    return keys
+      .map((key) => String(this.getPromptContent(key, CHAT_PROMPT_TYPE.instruction) ?? '').trim())
+      .filter(Boolean)
+      .join('\n\n')
+  }
+
+  /** 어떤 instruction 이 실제로 합쳐졌는지 로그로 드러낸다. */
+  describeInstructionSources(appKey?: string, screenKey?: string): string {
+    const app = String(appKey ?? '').trim()
+    const screen = String(screenKey ?? '').trim()
+    const effectiveApp = app || screen.replace(/^\/+/, '').split('/').filter(Boolean)[0] || ''
+
+    return ['common', effectiveApp, screen]
+      .filter(Boolean)
+      .filter((key, index, list) => list.indexOf(key) === index)
+      .map((key) => {
+        const meta = this.getPromptMeta(key, CHAT_PROMPT_TYPE.instruction)
+        if (!meta) return `${key}:none`
+        return `${key}:${meta.id ?? '-'}${meta.enabled ? '' : '(disabled)'}`
+      })
+      .join(', ')
+  }
+
   getGuidance(key: string): GuidanceData | undefined {
     const g = this.guidance.get(key)
     if (!g) return undefined

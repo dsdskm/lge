@@ -16,6 +16,8 @@ import { taskflowMessage, taskflowMessageNumber, TASKFLOW_MESSAGE_KEY } from './
 import { includesConfiguredPhrase, loadTaskflowClassifierRules } from '../taskflow-language-rules'
 import { trace, traceReqId } from '../trace.util'
 import { buildApplyDraftAction } from './taskflow-client-action'
+import { parseComposeNodesFromMessage } from './taskflow-nl-compose'
+import { markFlowDecision } from '../flow-trace'
 
 /** LLM 이 내려주는 노드. 트리는 preorder + depth 로 표현해 id/좌표 환각을 원천 차단한다. */
 type ComposeNodeArg = {
@@ -89,6 +91,10 @@ function describeTree(nodes: TaskflowTreeNode[]): string {
       return `${label} > [${describeTree(node.children)}]`
     })
     .join(', ')
+}
+
+function countTreeNodes(nodes: TaskflowTreeNode[]): number {
+  return nodes.reduce((total, node) => total + 1 + countTreeNodes(node.children ?? []), 0)
 }
 
 function emphasize(values: string[]): string {
@@ -413,15 +419,34 @@ export function createComposeTaskflowTool(): ToolDefinition | null {
     },
 
     execute: async (args: Record<string, any>, ctx: ToolContext) => {
-      const nodes = toComposeNodes(args.nodes)
-
-      // orchestrator 의 결정적 경로가 빈 인자로 먼저 호출한다. 빈 결과를 줘야 LLM 툴콜 경로로 넘어간다.
-      if (nodes.length === 0) {
-        return {}
-      }
-
       // 비활성 Task 의 콘텐츠가 먼저 잡혀 역추적이 실패하지 않도록 카탈로그에 있는 Task 로 한정한다.
       const contents = readTaskContents(ctx).filter((row) => Boolean(store.get(row.taskName)))
+      let nodes = toComposeNodes(args.nodes)
+
+      // orchestrator 의 결정적 경로가 빈 인자로 먼저 호출한다.
+      // 이때는 사용자 문장을 절 단위로 갈라 Task/콘텐츠를 직접 찾는다. 그래도 못 만들면 LLM 툴콜 경로로 넘어간다.
+      if (nodes.length === 0) {
+        const message = String((ctx.context as Record<string, unknown> | undefined)?.__userMessage ?? '').trim()
+        if (!message) return {}
+
+        const rules = await loadTaskflowClassifierRules(TASKFLOW_CANVAS_SCREEN_KEY)
+        const parsed = parseComposeNodesFromMessage(message, store.list(), contents, {
+          clauseSeparatorPhrases: rules?.clauseSeparatorPhrases ?? [],
+          clauseNoisePhrases: rules?.clauseNoisePhrases ?? [],
+        })
+
+        trace(traceReqId(ctx.context), '4-0.compose-nl-parse', {
+          clauses: parsed.clauses.map(
+            (row) => `${row.clause} => ${row.taskName ?? '?'}/${row.contentName ?? '-'}(${row.matchedBy ?? 'none'})`,
+          ),
+          matchedNodes: parsed.nodes.length,
+          paletteContents: contents.length,
+        })
+
+        if (parsed.nodes.length === 0) return {}
+        nodes = toComposeNodes(parsed.nodes)
+      }
+
       // 팔레트가 비면 자식 노드가 전부 버려진다. 여기 0 이면 프론트가 context.taskflow 를 안 보낸 것이다.
       trace(traceReqId(ctx.context), '4-1.compose-input', {
         llmNodes: nodes.map((node) => `${node.depth}:${node.taskName || '?'}/${node.contentName ?? '-'}`),
@@ -468,6 +493,14 @@ export function createComposeTaskflowTool(): ToolDefinition | null {
         ? { mode: 'edit', insertAfter: flattenTreeToInsertOps(roots) }
         : { mode: 'replace', roots }
 
+      markFlowDecision(traceReqId(ctx.context), {
+        handler: 'deterministic-compose',
+        draftNodeCount: Array.isArray((draft as any).roots)
+          ? countTreeNodes((draft as any).roots)
+          : Array.isArray((draft as any).insertAfter)
+            ? (draft as any).insertAfter.length
+            : 0,
+      })
       trace(traceReqId(ctx.context), '4-3.compose-draft', {
         mode: draft.mode,
         rootCount: Array.isArray((draft as any).roots) ? (draft as any).roots.length : 0,

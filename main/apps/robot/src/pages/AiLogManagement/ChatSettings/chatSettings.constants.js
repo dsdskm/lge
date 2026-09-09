@@ -16,6 +16,7 @@ export const APP_TAB = {
     RAG: 'rag',
     RULE: 'rule',
     ACTION_TOOL: 'actionTool',
+    HISTORY: 'history',
 }
 
 export const APP_TABS = [
@@ -46,6 +47,10 @@ export const APP_TABS = [
     {
         key: APP_TAB.ACTION_TOOL,
         label: 'Action Tool 설정',
+    },
+    {
+        key: APP_TAB.HISTORY,
+        label: '채팅 내역',
     },
 ]
 

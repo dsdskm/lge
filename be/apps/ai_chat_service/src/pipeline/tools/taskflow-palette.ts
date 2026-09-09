@@ -184,6 +184,56 @@ export function readCurrentGraphFromContext(context: unknown): CurrentGraph {
   }
 }
 
+/**
+ * Task 별 "호칭 접미어". 사람이 노드를 부를 때 이름 뒤에 붙이는 말이다.
+ *   MoveTo -> 장소/POI/위치, PlayMotion -> 모션, PlayFace -> 얼굴/표정, Tts -> 발화/음성 ...
+ * 값은 property_tms.compose_hint.nameSuffixes 에서 온다. 행이 없으면 접미어 처리를 하지 않는다.
+ */
+export function readNameSuffixPhrases(taskName: string): string[] {
+  const semantics = getPropertyTmsStore()?.get(String(taskName ?? '').trim())
+  const raw = semantics?.composeHint?.nameSuffixes
+
+  if (!Array.isArray(raw)) return []
+  return Array.from(
+    new Set(
+      raw
+        .map((value) => String(value ?? '').trim())
+        .filter(Boolean),
+    ),
+  )
+}
+
+/** 이름 뒤에 붙은 호칭 접미어를 떼어 낸 형태. "도슨트 환영 장소" -> "도슨트 환영" */
+function stripNameSuffix(value: string, suffixes: string[]): string {
+  let result = String(value ?? '').trim()
+
+  for (const suffix of [...suffixes].sort((a, b) => b.length - a.length)) {
+    const pattern = new RegExp(`\\s*${escapeRegExp(suffix)}\\s*$`, 'i')
+    if (pattern.test(result)) {
+      result = result.replace(pattern, '').trim()
+      break
+    }
+  }
+
+  return result
+}
+
+/**
+ * 콘텐츠 이름을 문장과 맞춰 볼 후보 키 목록.
+ *
+ * - 이름 전체(괄호까지가 이름이다)
+ * - 괄호 코드를 떼어 낸 형태: "도슨트 대기(D1)" 를 "도슨트 대기 장소" 라고 부르는 경우
+ * - 호칭 접미어를 떼어 낸 형태: 이름이 "도슨트 환영 장소" 인데 "도슨트 환영으로 이동" 이라고 부르는 경우
+ */
+export function buildContentMatchKeys(contentName: string, suffixes: string[] = []): string[] {
+  const raw = String(contentName ?? '').trim()
+  const withoutBrackets = raw.replace(/[([{<][^)\]}>]*[)\]}>]/g, ' ').trim()
+
+  const variants = [raw, withoutBrackets, stripNameSuffix(raw, suffixes), stripNameSuffix(withoutBrackets, suffixes)]
+
+  return Array.from(new Set(variants.map((value) => toMatchKey(value)))).filter((key) => key.length >= 2)
+}
+
 /** "타임아웃" 처럼 사람이 부르는 이름을 Task 이름으로 바꾼다. 별칭은 property_tms.trigger_phrases 에 있다. */
 export function resolveTaskAlias(name: string): string {
   const key = toMatchKey(name)
@@ -235,19 +285,39 @@ export function findContentRef(
   let bestScore = Number.MAX_SAFE_INTEGER
   let bestGap = Number.MAX_SAFE_INTEGER
 
+  // 요청어에서도 호칭 접미어를 떼어 본다. "도슨트 대기 장소" 로 불러도 이름이 "도슨트 대기(D1)" 인 경우가 있다.
+  const requestKeys = Array.from(
+    new Set([
+      key,
+      ...(taskName ? buildContentMatchKeys(contentName, readNameSuffixPhrases(taskName)) : []),
+    ]),
+  ).filter(Boolean)
+
   for (const row of pool) {
-    const contentKey = toMatchKey(row.contentName)
-    const direct = scoreContentMatch(key, contentKey)
-    const score = direct === null ? scoreByToken(contentName, contentKey) : direct
-    if (score === null) continue
+    const fullKey = toMatchKey(row.contentName)
+    // "1" 처럼 한 글자 이름은 아무 요청에나 걸려 엉뚱한 노드가 붙는다. 정확히 같을 때만 인정한다.
+    if (fullKey.length < 2 && fullKey !== key) continue
 
-    const gap = Math.abs(contentKey.length - key.length)
-    if (score > bestScore) continue
-    if (score === bestScore && gap >= bestGap) continue
+    // 이름 쪽도 괄호/접미어를 떼어 낸 형태까지 함께 본다.
+    const contentKeys = Array.from(
+      new Set([fullKey, ...buildContentMatchKeys(row.contentName, readNameSuffixPhrases(row.taskName))]),
+    )
 
-    best = row
-    bestScore = score
-    bestGap = gap
+    for (const contentKey of contentKeys) {
+      for (const requestKey of requestKeys) {
+        const direct = scoreContentMatch(requestKey, contentKey)
+        const score = direct === null ? scoreByToken(contentName, contentKey) : direct
+        if (score === null) continue
+
+        const gap = Math.abs(contentKey.length - requestKey.length)
+        if (score > bestScore) continue
+        if (score === bestScore && gap >= bestGap) continue
+
+        best = row
+        bestScore = score
+        bestGap = gap
+      }
+    }
   }
 
   return best

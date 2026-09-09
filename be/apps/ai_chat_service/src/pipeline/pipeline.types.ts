@@ -10,6 +10,10 @@
  *  - 기존 data 분류는 action으로 통합 처리한다.
  */
 
+import type { ChatFlowTrace } from './flow-trace'
+
+export type { ChatFlowTrace }
+
 /** 채팅 메시지 인텐트. */
 export type ChatIntent = 'info' | 'action'
 

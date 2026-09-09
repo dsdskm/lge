@@ -50,6 +50,7 @@ import { queryEvents } from '../screens/robot/ailog-event.datatools'
 import { matchFrontRule, type FrontRuleMatch } from '../domains/front-rule/front-rule-engine'
 import { ChatRuleService } from '../features/chat-settings/db/chat-rule.service'
 import type { MatchedRuleInfo } from '../pipeline/pipeline.types'
+import { markFlowDecision, readFlowTrace, recordFlowStep, resetFlowTrace, type ChatFlowTrace } from '../pipeline/flow-trace'
 
 type RuntimeEntry = {
   llm: LlmRuntime
@@ -106,6 +107,8 @@ type ChatLogDebugMeta = {
   }
   source?: 'orchestrator' | 'rule-first' | 'guidance' | 'front-rule'
   matchedRule?: MatchedRuleInfo
+  /** 요청이 지나온 모든 단계. 채팅 내역 디버그 패널이 이 값을 그린다. */
+  flowTrace?: ChatFlowTrace
 }
 
 type ScreenSummary = {
@@ -148,11 +151,12 @@ export class ChatService {
     ;(this.logger as unknown as { debug: (...args: any[]) => void }).debug = () => undefined
   }
 
+  /** 콘솔로는 남기지 않되, 채팅 내역에 보여 줄 흐름 기록에는 단계별로 쌓는다. */
   private stageLog(stage: string, status: string, reason: string, reqId?: string) {
-    void stage
-    void status
-    void reason
-    void reqId
+    recordFlowStep(reqId, stage, {
+      ...(status ? { status } : {}),
+      ...(reason ? { reason } : {}),
+    })
   }
 
   private normalizeRuleConfidence(value: number | string | undefined): number | undefined {
@@ -256,8 +260,43 @@ export class ChatService {
     return reqId
   }
 
+  /**
+   * 모든 채팅 입력은 어떤 경로를 타든 chat_log 에 남아야 한다.
+   * 경로별 저장을 놓치거나 중간에 예외가 나도 여기서 마지막으로 한 번 저장한다.
+   */
   async handleChat(body: any): Promise<ChatReply> {
     const reqId = this.ensureReqId(body)
+    resetFlowTrace(reqId, {
+      route: [this.normalize(body?.currentApp), this.normalize(body?.currentPath)].filter(Boolean).join('/'),
+      message: this.normalize(body?.message),
+    })
+
+    let reply: ChatReply | undefined
+    try {
+      reply = await this.runChatFlow(body, reqId)
+      return reply
+    } catch (e: any) {
+      this.stageLog('9단계:예외', 'fail', `채팅 처리 중 예외: ${e?.message ?? String(e)}`, reqId)
+      throw e
+    } finally {
+      if (body?.__chatLogSaved !== true) {
+        this.stageLog('9단계:응답저장_보정', 'fallback', '경로별 저장이 없어 마지막 단계에서 chat_log 저장', reqId)
+        await this.saveLog(
+          body,
+          reply ?? { chat_action: this.normalize(body?.currentPath) || 'default', text: '' },
+          undefined,
+          this.buildChatLogDebugMeta(
+            { body, reqId } as ChatContext,
+            reply ?? { chat_action: 'default', text: '' },
+            undefined,
+            'orchestrator',
+          ),
+        )
+      }
+    }
+  }
+
+  private async runChatFlow(body: any, reqId: string): Promise<ChatReply> {
     this.stageLog('1단계:요청수신', 'received', '채팅 요청 수신 및 파이프라인 시작', reqId)
 
     const runtime = await this.resolveRuntime()
@@ -521,6 +560,24 @@ export class ChatService {
     if (!asksCompose) return false
 
     return this.hasClassifierPhrase(text, rules.composeMoveHintKeywords)
+  }
+
+  /** 캔버스/노드 편집을 요청하는 문장인지. 판단 문구는 전부 rule 테이블에서 온다. */
+  private looksLikeScreenEditRequest(message: string, ctx: ChatContext): boolean {
+    const text = this.normalize(message)
+    if (!text) return false
+
+    const rules = ctx.taskflowClassifierRules
+    if (!rules) return false
+
+    if (this.looksLikeTaskflowComposeMessage(text, rules)) return true
+    if (this.hasClassifierPhrase(text, rules.editVerbKeywords)) return true
+
+    return this.hasClassifierPhrase(text, rules.actionRequestKeywords)
+      && (
+        this.hasClassifierPhrase(text, rules.editSubjectKeywords)
+        || this.hasClassifierPhrase(text, rules.clauseSeparatorPhrases)
+      )
   }
 
   private hasCanvasDraftParam(reply: ChatReply | null | undefined): boolean {
@@ -1007,7 +1064,7 @@ export class ChatService {
     return 'unknown'
   }
   private async handleRobotAilogChildScreen(ctx: ChatContext): Promise<ChatReply | null> {
-    const intent = this.classifyGenericScreenTask(ctx.message)
+    const intent = this.classifyGenericScreenTask(ctx.message, ctx)
 
     this.logger.log(
       `[chat] [reqId=${ctx.reqId}] status=classified reason=자식 화면의 generic task 분류 완료`,
@@ -1026,7 +1083,7 @@ export class ChatService {
    * - robot/users
    */
   private async handleRobotGenericScreen(ctx: ChatContext): Promise<ChatReply | null> {
-    const intent = this.classifyGenericScreenTask(ctx.message)
+    const intent = this.classifyGenericScreenTask(ctx.message, ctx)
 
     this.logger.log(
       `[chat] [reqId=${ctx.reqId}] status=classified reason=robot 일반 화면의 generic task 분류 완료`,
@@ -1040,7 +1097,7 @@ export class ChatService {
    * 현재는 ota/cms/tms 세부 화면이 아직 없으므로 generic 처리만 둔다.
    */
   private async handleGenericRegisteredScreen(ctx: ChatContext): Promise<ChatReply | null> {
-    const intent = this.classifyGenericScreenTask(ctx.message)
+    const intent = this.classifyGenericScreenTask(ctx.message, ctx)
 
     this.logger.log(
       `[chat] [reqId=${ctx.reqId}] status=classified reason=등록 화면의 generic task 분류 완료`,
@@ -1049,8 +1106,14 @@ export class ChatService {
     return this.runOrchestrator(ctx, intent)
   }
 
-  private classifyGenericScreenTask(message: string): ScreenTask {
+  private classifyGenericScreenTask(message: string, ctx?: ChatContext): ScreenTask {
     const text = message.toLowerCase()
+
+    // 콘텐츠 이름에 '설명' 같은 말이 들어가는 경우가 있어, 키워드로 guide 를 붙이기 전에
+    // 룰이 편집/구성 요청으로 보는 문장인지 먼저 확인한다. guide 로 붙으면 orchestrator 가 info 로 강제한다.
+    if (ctx && this.looksLikeScreenEditRequest(message, ctx)) {
+      return 'unknown'
+    }
 
     if (this.includesAny(text, ['생성', '추가', '등록', 'create', 'add'])) {
       return 'create'
@@ -1869,11 +1932,36 @@ export class ChatService {
       matchedRule,
     }
 
+    // 룰/RAG/guidance 등 어느 경로로 응답했든 같은 자리에서 흐름 판단값을 확정한다.
+    markFlowDecision(reqId, {
+      ruleEvaluated: true,
+      ruleMatched: Boolean(matchedRule),
+      ruleStage: matchedRule?.source ?? source,
+      ruleReason: matchedRule?.reason,
+      intent: pipelineIntent,
+      intentConfidence: Number.isFinite(pipelineConfidence) ? pipelineConfidence : undefined,
+      handler:
+        source === 'front-rule'
+          ? 'front-rule'
+          : source === 'guidance'
+            ? 'guidance'
+            : source === 'rule-first'
+              ? 'rule-first'
+              : undefined,
+      // ragUsed/ragRole 은 실제 처리 경로(handleInfo/handleExecution)가 이미 채웠으면 그 값을 남긴다.
+      ragUsed: usedChunks.length > 0 ? true : undefined,
+      ragUsedCollection: usedCollection || actionRagCollection,
+      ragTopScore: Number.isFinite(ragMatchScoreRaw) ? ragMatchScoreRaw : undefined,
+      ragMinScore,
+    })
+    debugMeta.flowTrace = readFlowTrace(reqId)
+
     const hasValues = Object.values(debugMeta).some((value) => value !== undefined)
     return hasValues ? debugMeta : undefined
   }
 
   private async saveLog(body: any, reply: ChatReply, ctx?: ChatContext, debugMeta?: ChatLogDebugMeta) {
+    if (body && typeof body === 'object') body.__chatLogSaved = true
     const author = ctx?.author || this.resolveAuthor(body)
     const conversationId =
       ctx?.conversationId ||

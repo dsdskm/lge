@@ -65,13 +65,21 @@ docker exec -it ai-chat-service-pg psql -U root -d ai_chat_service_db -c "\dt"
 ALTER TABLE events ADD COLUMN IF NOT EXISTS full_log JSONB;
 
 ## testcase - taskflow
-도슨트 대기로 이동하면서, 이동 음악 재생하고, Joy 얼굴 표시되게 해줘
-pause 노드를 parallel 노드 우측에 연결해줘
-인트로 tts, bouquet_hand_present 모션, Love 얼굴을 동시에 수행하는 parallel을 만들고 Pause 노드 우측에 연결 해줘
-parallel 노드 우측에 pause 노드 추가해
-두번째 
-thumb_up 모션 성공하면 Love 얼굴, 실패하면 Idle 얼굴 보이게 하는 ifThenElse 노드를 만들고 두번쨰 Pause 노드 우측에 연결해줘
-첫번쨰 parallel 노드와 유사한 노드를 만들어서 IfThenElse 노드 우측에 연결해줘
 
-두번째 Love를 Joy로 바꿔줘
+### rule
+parallel 노드 추가해줘
+parallel 노드에 puase 추가해줘
+parallel 노드에 pause 추가해줘
+parallel 노드 하단에 도슨트 대기 추가해줘
+인트로 tts, bouquet_hand_present 모션, Love 얼굴을 동시에 수행하는 parallel을 만들고 Pause 노드 우측에 연결 해줘
+pause 추가해
+thumb_up 모션 성공하면 Love 얼굴, 실패하면 Idle 얼굴 보이게 하는 ifThenElse 노드를 만들고 두번쨰 Pause 노드 우측에 연결해줘
+Love를 Joy로 바꿔줘
 Love 노드 지워줘
+Love노드 3회 반복해줘
+Repeat 반복회수 5로 바꿔줘
+3초 기다렸다가 Love노드 실행해줘
+Delay 노드 시간을 5초로 바꿔줘
+Love노드 실행하고 3초 타임아웃 걸어줘
+
+도슨트 환영 장소 이동해서 1.인트로 발화하고 도슨트 안내 장소로 이동해서 2.TV 구조도 설명1 발화 해줘. 그리고 작별 인사하고 도슨트 대기 장소로 돌아오게 해줘

@@ -36,6 +36,7 @@ import { CHAT_PROMPT_TYPE } from '../features/chat/prompt-types'
 import { getChatSettingService } from '../features/chat-settings/service/chat-setting.service'
 import { renderMessage } from './message-bundle.util'
 import { trace } from './trace.util'
+import { markFlowDecision, recordFlowStep } from './flow-trace'
 import { TASKFLOW_MESSAGE_KEY } from './tools/taskflow-message'
 import { logLlmPromptMeta } from '../utils/utils'
 import { buildToolContextFromBody } from './tool-context.util'
@@ -98,6 +99,8 @@ const EMPTY_CLASSIFIER_RULES: TaskflowClassifierRules = {
   arrowChainSeparators: [],
   concurrentHintKeywords: [],
   actionRequestKeywords: [],
+  clauseSeparatorPhrases: [],
+  clauseNoisePhrases: [],
 }
 
 export class ChatOrchestrator {
@@ -137,10 +140,16 @@ export class ChatOrchestrator {
     return String(body?.reqId ?? body?.requestId ?? '').trim() || '-'
   }
 
+  /** 콘솔로는 남기지 않되, 채팅 내역에 보여 줄 흐름 기록에는 단계별로 쌓는다. */
   private stageLog(stage: string, reqId: string, detail?: string) {
-    void stage
-    void reqId
-    void detail
+    const text = String(detail ?? '').trim()
+    const status = text.match(/status=([^\s]+)/)?.[1] ?? ''
+    const reason = text.match(/reason=(.*)$/)?.[1]?.trim() ?? ''
+
+    recordFlowStep(reqId, stage, {
+      ...(status ? { status } : {}),
+      ...(reason ? { reason } : {}),
+    })
   }
 
   private async generateDefaultLlmReply(
@@ -558,7 +567,11 @@ export class ChatOrchestrator {
       )
     }
 
-    const shouldForceInfoIntent = screenTask === 'guide' || this.isGuideLikeInfoQuery(effectiveMessage, taskflowOrchestratorRules)
+    // 룰이 이미 편집 요청으로 판정했으면 guide 로 되돌리지 않는다.
+    // 콘텐츠 이름에 '설명' 같은 말이 들어가면 screenTask 가 guide 로 잡혀 캔버스 편집이 통째로 막힌다.
+    const shouldForceInfoIntent =
+      !shouldForceTaskflowAction
+      && (screenTask === 'guide' || this.isGuideLikeInfoQuery(effectiveMessage, taskflowOrchestratorRules))
     if (shouldForceInfoIntent && pipelineIntent !== 'info') {
       pipelineIntent = 'info'
       this.stageLog(
@@ -594,6 +607,31 @@ export class ChatOrchestrator {
     this.logger.log(
       `================= [2-6단계:최종의도_확정_추적] [reqId=${reqId}] confidence=${pipelineIntentResult.confidence} classifierReason=${pipelineIntentResult.reason} infoRagCollections=${infoRagCollections.join(',')}`,
     )
+
+    markFlowDecision(reqId, {
+      ruleEvaluated: true,
+      ruleMatched: Boolean(ruleFirstIntentResult || shouldForceTaskflowAction),
+      ruleStage: 'orchestrator',
+      ruleReason: ruleFirstIntentResult
+        ? String(ruleFirstIntentResult.reason ?? '')
+        : shouldForceTaskflowAction
+          ? 'forced: compose_linear_taskflow taskflow-action heuristic'
+          : 'rule-first:no-match',
+      ruleKeys: ruleFirstIntentResult?.ruleKeys,
+      intent: pipelineIntent,
+      intentConfidence: Number.isFinite(pipelineIntentResult.confidence)
+        ? pipelineIntentResult.confidence
+        : undefined,
+      intentSource: ruleFirstIntentResult
+        ? 'rule-first'
+        : shouldForceTaskflowAction
+          ? 'forced-taskflow'
+          : shouldForceInfoIntent
+            ? 'forced-guide'
+            : pipelineIntentResult.confidence < this.pipeline.intentMinConfidence
+              ? 'low-confidence-fallback'
+              : 'llm',
+    })
 
     trace(reqId, '2.intent', {
       route: screen.key,
@@ -684,9 +722,12 @@ export class ChatOrchestrator {
           : undefined)
         : undefined
 
+      const matchedRuleKeys = ruleFirstIntentResult?.ruleKeys ?? []
       output.reply.matchedRule = {
+        // rule 테이블의 rule_key 를 그대로 보여 준다. 어떤 룰 때문에 이렇게 갈렸는지 바로 알 수 있게.
+        ruleKey: matchedRuleKeys.length > 0 ? matchedRuleKeys.join(' + ') : 'taskflow-action-heuristic',
+        ruleType: 'taskflow-classifier',
         source: 'orchestrator',
-        ruleKey: matchedReason || 'orchestrator-rule-match',
         reason: matchedReason || undefined,
         confidence: matchedConfidence,
       }
@@ -810,25 +851,40 @@ export class ChatOrchestrator {
     }
   }
 
+  /** 편집 요청 여부만 필요할 때. 어떤 rule_key 로 판정했는지는 evaluateTaskflowEditMessage 를 쓴다. */
   private looksLikeTaskflowEditMessage(
     message: string,
     rules?: TaskflowClassifierRules,
     canvasNodeNames: string[] = [],
   ): boolean {
+    return this.evaluateTaskflowEditMessage(message, rules, canvasNodeNames).matched
+  }
+
+  /**
+   * 캔버스 편집 요청인지 판정하고, 판정에 쓰인 rule 테이블의 rule_key 를 함께 돌려준다.
+   * 채팅 내역의 "매칭 룰" 에 이 키가 그대로 표시되므로, 어떤 룰 때문에 이렇게 갈렸는지 바로 알 수 있다.
+   */
+  private evaluateTaskflowEditMessage(
+    message: string,
+    rules?: TaskflowClassifierRules,
+    canvasNodeNames: string[] = [],
+  ): { matched: boolean; ruleKeys: string[] } {
     const text = String(message ?? '').trim()
-    if (!text) return false
+    if (!text) return { matched: false, ruleKeys: [] }
 
     const safeRules = rules ?? EMPTY_CLASSIFIER_RULES
 
     if (this.hasClassifierPhrase(text, safeRules.explanationBlockKeywords ?? [])) {
-      return false
+      return { matched: false, ruleKeys: ['explanationBlockKeywords'] }
     }
 
-    const isExplanationQuestion = this.hasClassifierPhrase(text, ['어떻게', '사용법', '예시', '설명', '가이드'])
+    // 설명 요청 문구는 rule 테이블(explanationKeywords)에서만 온다.
+    // 콘텐츠 이름에 '설명' 이 들어가는 경우가 있어 코드에 문구를 박아 두면 편집 요청까지 막힌다.
+    const isExplanationQuestion = this.hasClassifierPhrase(text, safeRules.explanationKeywords ?? [])
       && !this.hasClassifierPhrase(text, safeRules.composeRequestKeywords ?? [])
       && !this.hasClassifierPhrase(text, safeRules.editVerbKeywords ?? [])
     if (isExplanationQuestion) {
-      return false
+      return { matched: false, ruleKeys: ['explanationKeywords'] }
     }
 
     const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
@@ -836,30 +892,42 @@ export class ChatOrchestrator {
     const deletePrefixes = Array.isArray(safeRules.nodeEditDeletePrefixes) ? safeRules.nodeEditDeletePrefixes : []
     const arrowSeps = Array.isArray(safeRules.arrowChainSeparators) ? safeRules.arrowChainSeparators : []
 
-    const hasSyntaxPattern = lines.some((line) => {
-      if (deletePrefixes.some((p) => new RegExp(`(?:^|[\\s,;])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\w가-힣]`).test(line))) return true
-      if (arrowSeps.some((s) => line.includes(s))) return true
-      return false
-    })
-    if (hasSyntaxPattern) return true
+    const hasDeletePrefix = lines.some((line) =>
+      deletePrefixes.some((p) => new RegExp(`(?:^|[\\s,;])${p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\w가-힣]`).test(line)),
+    )
+    if (hasDeletePrefix) return { matched: true, ruleKeys: ['nodeEditDeletePrefixes'] }
+
+    const hasArrowChain = lines.some((line) => arrowSeps.some((sep) => line.includes(sep)))
+    if (hasArrowChain) return { matched: true, ruleKeys: ['arrowChainSeparators'] }
 
     const hasArrowSequenceByRule =
       Boolean(safeRules.arrowSequenceEnabled)
       && this.hasClassifierPhrase(text, safeRules.composeMoveHintKeywords ?? [])
-    if (hasArrowSequenceByRule) return true
+    if (hasArrowSequenceByRule) return { matched: true, ruleKeys: ['arrowSequenceEnabled', 'composeMoveHintKeywords'] }
 
-    if (!this.hasClassifierPhrase(text, safeRules.editSubjectKeywords ?? [])) {
-      // "PlaySound 지워줘" 처럼 캔버스에 있는 노드 이름을 직접 부르면 그 이름이 곳 대상이다.
-      if (!this.mentionsCanvasNode(text, canvasNodeNames)) return false
+    const subjectKeys: string[] = []
+    if (this.hasClassifierPhrase(text, safeRules.editSubjectKeywords ?? [])) {
+      subjectKeys.push('editSubjectKeywords')
+    } else if (this.mentionsCanvasNode(text, canvasNodeNames)) {
+      // "PlaySound 지워줘" 처럼 캔버스에 있는 노드 이름을 직접 부르면 그 이름이 곧 대상이다.
+      subjectKeys.push('canvasNodeName')
+    } else {
+      return { matched: false, ruleKeys: ['editSubjectKeywords'] }
     }
 
-    if (this.hasClassifierPhrase(text, safeRules.editVerbKeywords ?? [])) return true
+    if (this.hasClassifierPhrase(text, safeRules.editVerbKeywords ?? [])) {
+      return { matched: true, ruleKeys: [...subjectKeys, 'editVerbKeywords'] }
+    }
 
-    // "A 로 이동하면서 B 재생하고 C 표시되게 해줘" 처럼 편집 동사 없이 동작만 나열한 요청.
+    // "A 장소 이동해서 B 발화하고 ... 돌아오게 해줘" 처럼 편집 동사 없이 동작만 나열한 요청.
     // 이런 문장을 놓치면 info(RAG) 로 새 나가 "구성했습니다" 라고만 답하고 캔버스는 그대로 남는다.
-    const hasConcurrentHint = this.hasClassifierPhrase(text, safeRules.concurrentHintKeywords ?? [])
+    // 여기까지 왔으면 편집 대상(editSubject) 또는 실제 캔버스/팔레트 노드 이름이 이미 문장에 있다.
+    // 그래서 동시 실행 문구가 없어도 동작 요청 문구만으로 편집 요청으로 본다.
     const hasActionRequest = this.hasClassifierPhrase(text, safeRules.actionRequestKeywords ?? [])
-    return hasConcurrentHint && hasActionRequest
+    return {
+      matched: hasActionRequest,
+      ruleKeys: [...subjectKeys, 'actionRequestKeywords'],
+    }
   }
 
   private mentionsCanvasNode(message: string, canvasNodeNames: string[]): boolean {
@@ -892,7 +960,7 @@ export class ChatOrchestrator {
     classifierRules: TaskflowClassifierRules,
     orchestratorRules: TaskflowOrchestratorRules,
     canvasNodeNames: string[] = [],
-  ): { intent: ChatIntent; confidence: number; reason: string } | null {
+  ): { intent: ChatIntent; confidence: number; reason: string; ruleKeys?: string[] } | null {
     const text = String(message ?? '').trim()
     if (!text) return null
 
@@ -901,19 +969,23 @@ export class ChatOrchestrator {
     )
     if (!hasComposeTaskflowTool) return null
 
+    // 편집 패턴을 먼저 본다. guide 판정은 화면 단계에서 키워드 하나로도 붙어서,
+    // 먼저 검사하면 "A 이동하고 B 발화해줘" 같은 편집 요청이 info 로 새 나간다.
+    const editEvaluation = this.evaluateTaskflowEditMessage(text, classifierRules, canvasNodeNames)
+    if (editEvaluation.matched) {
+      return {
+        intent: 'action',
+        confidence: Number(orchestratorRules.ruleFirstIntentConfidence) || 0,
+        reason: 'rule-first: taskflow edit pattern matched',
+        ruleKeys: editEvaluation.ruleKeys,
+      }
+    }
+
     if (screenTask === 'guide' || this.isGuideLikeInfoQuery(text, orchestratorRules)) {
       return {
         intent: 'info',
         confidence: Number(orchestratorRules.ruleFirstIntentConfidence) || 0,
         reason: 'rule-first: guide/info cue matched',
-      }
-    }
-
-    if (this.looksLikeTaskflowEditMessage(text, classifierRules, canvasNodeNames)) {
-      return {
-        intent: 'action',
-        confidence: Number(orchestratorRules.ruleFirstIntentConfidence) || 0,
-        reason: 'rule-first: taskflow edit pattern matched',
       }
     }
 
@@ -989,7 +1061,7 @@ export class ChatOrchestrator {
       message,
       history,
       reqId,
-      { intentType: 'info' },
+      { intentType: 'info', appKey: screen.appKey, screenKey: screen.key },
     )
 
     let text = primary.text
@@ -1011,7 +1083,7 @@ export class ChatOrchestrator {
           message,
           history,
           reqId,
-          { intentType: 'info' },
+          { intentType: 'info', appKey: screen.appKey, screenKey: screen.key },
         )
 
         ragScores = [...ragScores, ...fallback.ragScores]
@@ -1046,6 +1118,21 @@ export class ChatOrchestrator {
     this.logger.log(
       `[rag-diagnosis] [reqId=${reqId}] stage=finalize usedCollection=${usedCollection ?? '-'} usedChunks=${JSON.stringify(usedChunks)} rawLlmText=${JSON.stringify(fallbackText)} ragBodyFallback=${JSON.stringify(ragBodyFallback)} usesRagBodyFallback=${usesRagBodyFallback} finalFallbackText=${JSON.stringify(finalFallbackText)} finalText=${JSON.stringify(finalFallbackText || finalText)}`,
     )
+
+    const selectedRagScore = usedCollection
+      ? ragScores.find((row) => String(row?.collection ?? '').trim() === usedCollection)
+      : undefined
+    markFlowDecision(reqId, {
+      handler: 'rag',
+      // info 경로에서는 RAG 문서가 답변의 근거다.
+      ragRole: usedChunks.length > 0 ? 'answer' : 'unused',
+      ragUsed: usedChunks.length > 0,
+      ragUsedCollection: usedCollection,
+      ragTopScore: Number.isFinite(Number(selectedRagScore?.topScore)) ? Number(selectedRagScore?.topScore) : undefined,
+      ragMinScore: Number.isFinite(Number(this.pipeline.infoRagMinScore))
+        ? Number(this.pipeline.infoRagMinScore)
+        : undefined,
+    })
 
     return {
       handled: true,
@@ -1163,7 +1250,7 @@ export class ChatOrchestrator {
         message,
         history,
         reqId,
-        { intentType: 'action' },
+        { intentType: 'action', appKey: screen.appKey, screenKey: screen.key },
       )
 
       const finalText = actionReply.text?.trim()
@@ -1298,6 +1385,15 @@ export class ChatOrchestrator {
         (noExecution || claimedWithoutAction ? fallbackText : '') ||
         executionText?.trim() ||
         (hasSiteAction ? '요청을 처리했습니다.' : '조회 결과를 확인했습니다.')
+
+      markFlowDecision(reqId, {
+        handler: deterministicApplied ? 'deterministic-compose' : 'tool',
+        toolCalls: executionCalls.map((call) => `${call.name}${call.error ? '(error)' : ''}`),
+        // action 경로의 RAG 는 답변이 아니라 도구 프롬프트에 붙는 참고 문서다.
+        ragRole: actionRag.usedChunks.length > 0 ? 'context' : 'unused',
+        ragUsed: actionRag.usedChunks.length > 0,
+        ragUsedCollection: actionRag.usedCollection,
+      })
 
       return {
         handled: true,

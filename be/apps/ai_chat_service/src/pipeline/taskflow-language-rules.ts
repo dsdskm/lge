@@ -51,6 +51,10 @@ export type TaskflowClassifierRules = {
   concurrentHintKeywords: string[]
   /** "재생해줘", "표시되게" 처럼 동작 자체를 시키는 말. editVerb 가 없어도 편집 요청으로 본다. */
   actionRequestKeywords: string[]
+  /** "~해서", "~하고", "그리고" 처럼 한 문장을 여러 동작으로 끊는 말. 복합 문장을 절 단위로 자를 때 쓴다. */
+  clauseSeparatorPhrases: string[]
+  /** 절에서 노드 이름을 뽑을 때 떼어 낼 조사/군더더기. 예: "로", "으로", "좀" */
+  clauseNoisePhrases: string[]
 }
 
 export type TaskflowOrchestratorRules = {
@@ -340,6 +344,8 @@ async function readClassifierRules(routeKey: string): Promise<TaskflowClassifier
     arrowChainSeparators: readMergedList(ruleMaps, 'arrowChainSeparators'),
     concurrentHintKeywords: readMergedList(ruleMaps, 'concurrentHintKeywords'),
     actionRequestKeywords: readMergedList(ruleMaps, 'actionRequestKeywords'),
+    clauseSeparatorPhrases: readMergedList(ruleMaps, 'clauseSeparatorPhrases'),
+    clauseNoisePhrases: readMergedList(ruleMaps, 'clauseNoisePhrases'),
   }
 }
 

@@ -9,6 +9,16 @@ AWS_REGION="${AWS_REGION:-ap-northeast-2}"
 
 ECR_REPOSITORY="${ECR_REPOSITORY:-rsp-qa-ai/unified-service}"
 
+# =========================================================
+# DB Backup Config
+# =========================================================
+
+# EC2 -> S3 -> Local 백업 전달용 버킷
+BACKUP_S3_BUCKET="${BACKUP_S3_BUCKET:-rsp-qa-ai}"
+
+# S3 내부 임시 저장 경로
+BACKUP_S3_PREFIX="${BACKUP_S3_PREFIX:-backup_db}"
+
 # CloudWatch Logs (compose.qa.yml 의 awslogs-group 과 동일, 스트림=서비스명)
 LOG_GROUP="${LOG_GROUP:-/aws/ec2/rsp-qa-ai}"
 

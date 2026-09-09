@@ -46,8 +46,11 @@ x-app-common: &app-common
     URL_LLM_GATEWAY: http://llm_gateway:3003
 
 # Postgres 공통 템플릿
+# 버전은 로컬 dev DB(scripts/db/db.sh)와 같은 메이저로 맞춘다.
+# 메이저를 올리면 기존 볼륨(구 버전 데이터 디렉터리)을 그대로 못 읽으므로,
+# 반드시 backup.sh 로 덤프 → 볼륨 초기화 → restore.sh 순서로 옮겨야 한다.
 x-db-common: &db-common
-  image: postgres:16-alpine
+  image: postgres:${POSTGRES_IMAGE_TAG:-18-alpine}
   restart: unless-stopped
   environment:
     POSTGRES_USER: root
@@ -57,63 +60,93 @@ services:
   # ── Databases ──────────────────────────────────────────────
   config_manager_db:
     <<: *db-common
+    # 서비스 키(= 네트워크 호스트명)는 DB_URL_* 배선 때문에 유지하고, 컨테이너 이름만 고정한다.
+    # backup.sh / db-tunnel-aws.sh 가 기대하는 이름과 같게 맞춘다.
+    container_name: config-manager-pg
     environment: { POSTGRES_USER: root, POSTGRES_PASSWORD: root, POSTGRES_DB: config_manager_db }
-    volumes: ["config_manager_db_data:/var/lib/postgresql/data"]
+    volumes: ["config_manager_db_pgdata:/var/lib/postgresql"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U root -d config_manager_db"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      # DB 6개가 동시에 초기화되면 첫 기동이 수십 초 걸린다. 그 사이 실패로 세지 않는다.
+      start_period: 60s
 
   event_receiver_db:
     <<: *db-common
+    # 서비스 키(= 네트워크 호스트명)는 DB_URL_* 배선 때문에 유지하고, 컨테이너 이름만 고정한다.
+    # backup.sh / db-tunnel-aws.sh 가 기대하는 이름과 같게 맞춘다.
+    container_name: event-receiver-pg
     environment: { POSTGRES_USER: root, POSTGRES_PASSWORD: root, POSTGRES_DB: event_receiver_db }
-    volumes: ["event_receiver_db_data:/var/lib/postgresql/data"]
+    volumes: ["event_receiver_db_pgdata:/var/lib/postgresql"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U root -d event_receiver_db"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      # DB 6개가 동시에 초기화되면 첫 기동이 수십 초 걸린다. 그 사이 실패로 세지 않는다.
+      start_period: 60s
 
   event_analyzer_db:
     <<: *db-common
+    # 서비스 키(= 네트워크 호스트명)는 DB_URL_* 배선 때문에 유지하고, 컨테이너 이름만 고정한다.
+    # backup.sh / db-tunnel-aws.sh 가 기대하는 이름과 같게 맞춘다.
+    container_name: event-analyzer-pg
     environment: { POSTGRES_USER: root, POSTGRES_PASSWORD: root, POSTGRES_DB: event_analyzer_db }
-    volumes: ["event_analyzer_db_data:/var/lib/postgresql/data"]
+    volumes: ["event_analyzer_db_pgdata:/var/lib/postgresql"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U root -d event_analyzer_db"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      # DB 6개가 동시에 초기화되면 첫 기동이 수십 초 걸린다. 그 사이 실패로 세지 않는다.
+      start_period: 60s
 
   action_runner_db:
     <<: *db-common
+    # 서비스 키(= 네트워크 호스트명)는 DB_URL_* 배선 때문에 유지하고, 컨테이너 이름만 고정한다.
+    # backup.sh / db-tunnel-aws.sh 가 기대하는 이름과 같게 맞춘다.
+    container_name: action-runner-pg
     environment: { POSTGRES_USER: root, POSTGRES_PASSWORD: root, POSTGRES_DB: action_runner_db }
-    volumes: ["action_runner_db_data:/var/lib/postgresql/data"]
+    volumes: ["action_runner_db_pgdata:/var/lib/postgresql"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U root -d action_runner_db"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      # DB 6개가 동시에 초기화되면 첫 기동이 수십 초 걸린다. 그 사이 실패로 세지 않는다.
+      start_period: 60s
 
   report_manager_db:
     <<: *db-common
+    # 서비스 키(= 네트워크 호스트명)는 DB_URL_* 배선 때문에 유지하고, 컨테이너 이름만 고정한다.
+    # backup.sh / db-tunnel-aws.sh 가 기대하는 이름과 같게 맞춘다.
+    container_name: report-manager-pg
     environment: { POSTGRES_USER: root, POSTGRES_PASSWORD: root, POSTGRES_DB: report_manager_db }
-    volumes: ["report_manager_db_data:/var/lib/postgresql/data"]
+    volumes: ["report_manager_db_pgdata:/var/lib/postgresql"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U root -d report_manager_db"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      # DB 6개가 동시에 초기화되면 첫 기동이 수십 초 걸린다. 그 사이 실패로 세지 않는다.
+      start_period: 60s
 
   ai_chat_service_db:
     <<: *db-common
+    # 서비스 키(= 네트워크 호스트명)는 DB_URL_* 배선 때문에 유지하고, 컨테이너 이름만 고정한다.
+    # backup.sh / db-tunnel-aws.sh 가 기대하는 이름과 같게 맞춘다.
+    container_name: ai-chat-service-pg
     environment: { POSTGRES_USER: root, POSTGRES_PASSWORD: root, POSTGRES_DB: ai_chat_service_db }
-    volumes: ["ai_chat_service_db_data:/var/lib/postgresql/data"]
+    volumes: ["ai_chat_service_db_pgdata:/var/lib/postgresql"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U root -d ai_chat_service_db"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      # DB 6개가 동시에 초기화되면 첫 기동이 수십 초 걸린다. 그 사이 실패로 세지 않는다.
+      start_period: 60s
 
   # ── Services ───────────────────────────────────────────────
   config_manager:
@@ -343,9 +376,12 @@ services:
       start_period: 30s
 
 volumes:
-  config_manager_db_data:
-  ai_chat_service_db_data:
-  event_receiver_db_data:
-  event_analyzer_db_data:
-  action_runner_db_data:
-  report_manager_db_data:
+  # PG18 이미지는 /var/lib/postgresql 을 마운트하고 그 안에 메이저 버전별 디렉터리를 만든다.
+  # 그래서 16 시절의 *_db_data 볼륨(= /var/lib/postgresql/data 를 직접 담고 있던 볼륨)과 호환되지 않는다.
+  # 기존 볼륨은 롤백/덤프 추출용으로 남겨 두고, 18 부터는 *_db_pgdata 를 쓴다.
+  config_manager_db_pgdata:
+  ai_chat_service_db_pgdata:
+  event_receiver_db_pgdata:
+  event_analyzer_db_pgdata:
+  action_runner_db_pgdata:
+  report_manager_db_pgdata:

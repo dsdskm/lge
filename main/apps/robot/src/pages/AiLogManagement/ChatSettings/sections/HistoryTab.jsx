@@ -131,6 +131,78 @@ const formatFlowSteps = ({
   return ['[Flow]', ...numberedSteps].join('\n')
 }
 
+const STEP_TONE = {
+  ok: 'green',
+  skip: 'slate',
+  fallback: 'amber',
+  fail: 'rose'
+}
+
+const toFlowTrace = (debugMeta) => {
+  const raw = debugMeta?.flowTrace
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+
+  const decisions = raw?.decisions && typeof raw.decisions === 'object' ? raw.decisions : {}
+  const steps = Array.isArray(raw?.steps) ? raw.steps : []
+
+  return {
+    reqId: String(raw?.reqId ?? '').trim(),
+    route: String(raw?.route ?? '').trim(),
+    totalMs: Number.isFinite(Number(raw?.totalMs)) ? Number(raw.totalMs) : undefined,
+    decisions,
+    steps
+  }
+}
+
+const RAG_ROLE_LABEL = {
+  answer: '답변 근거',
+  context: '도구 프롬프트 참고',
+  unused: '미사용'
+}
+
+/** RAG 가 어떻게 쓰였는지. action 경로의 RAG 는 답변이 아니라 도구 프롬프트에 붙는 참고 문서다. */
+const resolveRagRole = (decisions, debugMeta) => {
+  const role = String(decisions?.ragRole ?? '').trim()
+  if (RAG_ROLE_LABEL[role]) return role
+  if (String(debugMeta?.pipelineIntent ?? '').trim() === 'action') return 'context'
+  return decisions?.ragUsed || debugMeta?.usedChunks?.length > 0 ? 'answer' : 'unused'
+}
+
+/** 판단 결과를 한 줄 칩으로. 룰 매칭인지 / RAG 인지 / info·action 인지 / 점수는 얼마인지를 여기서 읽는다. */
+const FlowDecisionChips = ({ decisions }) => (
+  <DebugSummaryBar>
+    <DebugChip $tone={decisions?.ruleMatched ? 'green' : 'slate'}>
+      룰: {decisions?.ruleMatched ? '매칭' : decisions?.ruleEvaluated ? '미매칭' : '평가 안 함'}
+    </DebugChip>
+    <DebugChip $tone="blue">
+      의도: {String(decisions?.intent ?? '-')} ({formatScore(decisions?.intentConfidence)})
+    </DebugChip>
+    <DebugChip $tone="slate">의도 결정: {String(decisions?.intentSource ?? '-')}</DebugChip>
+    <DebugChip $tone="amber">처리 경로: {String(decisions?.handler ?? '-')}</DebugChip>
+    <DebugChip $tone={decisions?.ragRole === 'answer' ? 'green' : decisions?.ragRole === 'context' ? 'amber' : 'slate'}>
+      RAG {RAG_ROLE_LABEL[String(decisions?.ragRole ?? '')] ?? '판정 없음'}
+      {decisions?.ragUsedCollection ? `: ${decisions.ragUsedCollection}` : ''}
+    </DebugChip>
+    <DebugChip $tone="slate">
+      RAG 점수: {formatScore(decisions?.ragTopScore)} / 기준 {formatScore(decisions?.ragMinScore)}
+    </DebugChip>
+    {Array.isArray(decisions?.ruleKeys) && decisions.ruleKeys.length > 0 ? (
+      <DebugChip $tone="green">rule_key: {decisions.ruleKeys.join(' + ')}</DebugChip>
+    ) : null}
+    {Array.isArray(decisions?.toolCalls) && decisions.toolCalls.length > 0 ? (
+      <DebugChip $tone="blue">tool: {decisions.toolCalls.join(', ')}</DebugChip>
+    ) : null}
+  </DebugSummaryBar>
+)
+
+const formatStepDetail = (detail) => {
+  if (!detail || typeof detail !== 'object') return ''
+  return Object.entries(detail)
+    .filter(([key]) => key !== 'status')
+    .map(([key, value]) => `${key}=${String(value ?? '')}`)
+    .join(' · ')
+}
+
 export const HistoryTab = ({
   history,
   ragDocs = [],
@@ -446,12 +518,18 @@ export const HistoryTab = ({
                     : source === 'guidance'
                       ? 'Guidance'
                       : '-'
-            const ragStateLabel = isRuleHandled ? '스킵' : defaultLlmFallback ? '폴백' : '채택'
+            const flowTrace = toFlowTrace(debugMeta)
+            const ragRole = resolveRagRole(flowTrace?.decisions, debugMeta)
+            const ragStateLabel = isRuleHandled ? '스킵' : defaultLlmFallback ? '폴백' : RAG_ROLE_LABEL[ragRole]
             const finalProcessingLabel = isRuleHandled
               ? 'RAG 스킵 (rule 매칭 처리)'
               : defaultLlmFallback
                 ? 'RAG 미채택 -> LLM 폴백'
-                : 'RAG 채택'
+                : ragRole === 'context'
+                  ? 'RAG 문서를 도구 프롬프트 참고로만 사용 (답변 근거 아님)'
+                  : ragRole === 'answer'
+                    ? 'RAG 채택 (답변 근거)'
+                    : 'RAG 미사용'
             const loginUser = summarizeLoginUser(debugMeta, item)
             const displayEmail = resolveDisplayEmail(loginUser, item)
             const ruleDisplayText = matchedRuleKey
@@ -550,7 +628,13 @@ export const HistoryTab = ({
                     <SmallBadge>디버그 정보</SmallBadge>
                     <DebugSummaryBar>
                       <DebugChip $tone="blue">Source: {sourceLabel}</DebugChip>
-                      <DebugChip $tone={isRuleHandled ? 'green' : 'amber'}>RAG: {ragStateLabel}</DebugChip>
+                      <DebugChip
+                        $tone={
+                          isRuleHandled || ragRole === 'unused' ? 'slate' : ragRole === 'answer' ? 'green' : 'amber'
+                        }
+                      >
+                        RAG: {ragStateLabel}
+                      </DebugChip>
                       <DebugChip $tone={matchedRuleKey ? 'amber' : 'slate'}>
                         Rule: {matchedRuleKey ? '매칭' : '미매칭'}
                       </DebugChip>
@@ -643,6 +727,58 @@ export const HistoryTab = ({
                         </DebugDetailPanel>
                       </div>
                     </details>
+
+                    {flowTrace ? (
+                      <>
+                        <FlowDecisionChips decisions={flowTrace.decisions} />
+
+                        <details>
+                          <summary
+                            style={{
+                              cursor: 'pointer',
+                              fontSize: '12px',
+                              fontWeight: 800,
+                              color: '#1e3a8a',
+                              padding: '2px 0'
+                            }}
+                          >
+                            처리 단계 전체 보기 ({flowTrace.steps.length}단계
+                            {flowTrace.totalMs !== undefined ? ` · ${flowTrace.totalMs}ms` : ''})
+                          </summary>
+                          <div style={{ marginTop: '8px' }}>
+                            <DebugDetailPanel>
+                              <DebugDetailTitle>
+                                단계별 처리 흐름 {flowTrace.reqId ? `(reqId ${flowTrace.reqId})` : ''}
+                              </DebugDetailTitle>
+                              <div style={{ display: 'grid', gap: '4px', marginTop: '6px' }}>
+                                {flowTrace.steps.map((step, index) => (
+                                  <div
+                                    key={`flow-step-${item.id}-${index}`}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'flex-start',
+                                      gap: '6px',
+                                      fontSize: '12px',
+                                      color: '#334155'
+                                    }}
+                                  >
+                                    <DebugChip $tone={STEP_TONE[String(step?.status ?? 'ok')] ?? 'slate'}>
+                                      {Number(step?.seq ?? index + 1)}. {String(step?.stage ?? '-')}
+                                    </DebugChip>
+                                    <span style={{ paddingTop: '3px', wordBreak: 'break-word' }}>
+                                      {formatStepDetail(step?.detail) || '-'}
+                                      {Number.isFinite(Number(step?.elapsedMs))
+                                        ? ` (+${Number(step.elapsedMs)}ms)`
+                                        : ''}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </DebugDetailPanel>
+                          </div>
+                        </details>
+                      </>
+                    ) : null}
 
                     <details>
                       <summary

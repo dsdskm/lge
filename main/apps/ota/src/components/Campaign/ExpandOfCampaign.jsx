@@ -70,14 +70,9 @@ const ExpandOfCampaign = ({
   useEffect(() => {
     const fetchDevicesByStatus = async () => {
       setIsLoading(true)
-      const thingNameList = campaignData.TargetGroup.Devices.map((device) => device.thingName)
       try {
         const jobExecutionStatus = filterQuery === 'all' ? undefined : filterQuery
-        const response = await campaignApis.retrieveCampaignDeviceList(
-          campaignData.id,
-          thingNameList,
-          jobExecutionStatus
-        )
+        const response = await campaignApis.retrieveCampaignDeviceList(campaignData.id, jobExecutionStatus)
         const deviceStatusList = response?.results || []
         const updatedDevices = deviceStatusList
           .map((device) => {

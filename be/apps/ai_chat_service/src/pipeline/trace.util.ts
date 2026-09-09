@@ -3,6 +3,8 @@
  * 프론트도 같은 접두어([ai-trace])를 쓰므로 reqId 로 서버/브라우저 로그를 이어 볼 수 있다.
  * 끄고 싶으면 AI_TRACE=off.
  */
+import { recordFlowStep } from './flow-trace'
+
 const TRACE_PREFIX = '[ai-trace]'
 const ENABLED = String(process.env.AI_TRACE ?? '').trim().toLowerCase() !== 'off'
 
@@ -30,10 +32,13 @@ const TRACE_BUFFER_LIMIT = 500
 const traceBuffer: TraceEntry[] = []
 
 export function trace(reqId: string | undefined, stage: string, detail?: Record<string, unknown>): void {
-  if (!ENABLED) return
-
   const normalizedReqId = String(reqId ?? '-') || '-'
   const entries = Object.entries(detail ?? {}).map(([key, value]) => [key, preview(value)] as const)
+
+  // 콘솔 출력은 끌 수 있어도, 채팅 내역에 남기는 흐름 기록은 항상 모은다.
+  recordFlowStep(normalizedReqId, stage, Object.fromEntries(entries))
+
+  if (!ENABLED) return
 
   console.log(
     `${TRACE_PREFIX} reqId=${normalizedReqId} ${stage}${entries.length > 0 ? ` ${entries.map(([key, value]) => `${key}=${value}`).join(' ')}` : ''}`,

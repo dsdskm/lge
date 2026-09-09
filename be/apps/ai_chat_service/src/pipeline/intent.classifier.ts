@@ -15,7 +15,8 @@ import { logLlmPromptMeta, safeJsonParse } from '../utils/utils'
 import type { ChatIntent, ChatTurn, IntentResult } from './pipeline.types'
 
 function buildSystemPrompt(screenName: string, intentClassifierPrompt?: string): string {
-  const commonInstruction = getPromptStore()?.getPromptContent('common', CHAT_PROMPT_TYPE.instruction)?.trim() ?? ''
+  // instruction 은 common -> 앱 -> 화면 순으로 합친다. 화면 키에서 앱을 뽑는다.
+  const commonInstruction = getPromptStore()?.getInstruction('', screenName)?.trim() ?? ''
   const extras = [
     commonInstruction,
     screenName ? `screen=${String(screenName)}` : '',
@@ -38,21 +39,21 @@ export class IntentClassifier {
     history: ChatTurn[] = [],
     reqId = '-',
   ): Promise<IntentResult> {
-    const commonInstructionMeta = getPromptStore()?.getPromptMeta('common', CHAT_PROMPT_TYPE.instruction)
     const appKey = screenKey?.split('/')?.[0] ?? ''
+    const instructionSources = getPromptStore()?.describeInstructionSources(appKey, screenKey) ?? '-'
     const commonIntentClassifierMeta = getPromptStore()?.getPromptMeta('common', CHAT_PROMPT_TYPE.intentClassifier)
     const appIntentClassifierMeta = getPromptStore()?.getPromptMeta(appKey, CHAT_PROMPT_TYPE.intentClassifier)
     const screenIntentClassifierMeta = getPromptStore()?.getPromptMeta(screenKey, CHAT_PROMPT_TYPE.intentClassifier)
     const systemPrompt = buildSystemPrompt(screenKey, intentClassifierPrompt)
     console.log(
-      `######## 적용 프롬프트 아이디 ########\n[reqId=${reqId}] [stage=intent-classifier] route=${screenKey || '-'}\n- common/instruction: ${commonInstructionMeta?.id ?? '-'}\n- common/intent-classifier: ${commonIntentClassifierMeta?.id ?? '-'}\n- ${appKey || '-'}/intent-classifier: ${appIntentClassifierMeta?.id ?? '-'}\n- ${screenKey || '-'}/intent-classifier: ${screenIntentClassifierMeta?.id ?? '-'}\n######################################`,
+      `######## 적용 프롬프트 아이디 ########\n[reqId=${reqId}] [stage=intent-classifier] route=${screenKey || '-'}\n- instruction(common+app+screen): ${instructionSources}\n- common/intent-classifier: ${commonIntentClassifierMeta?.id ?? '-'}\n- ${appKey || '-'}/intent-classifier: ${appIntentClassifierMeta?.id ?? '-'}\n- ${screenKey || '-'}/intent-classifier: ${screenIntentClassifierMeta?.id ?? '-'}\n######################################`,
     )
     logLlmPromptMeta({
       stage: 'intent-classifier',
       promptType: CHAT_PROMPT_TYPE.intentClassifier,
       route: screenKey,
       appKey: appKey || null,
-      promptId: screenIntentClassifierMeta?.id ?? commonInstructionMeta?.id ?? null,
+      promptId: screenIntentClassifierMeta?.id ?? commonIntentClassifierMeta?.id ?? null,
       systemPromptLen: systemPrompt.length,
       messageLen: String(message ?? '').length,
       historyTurns: history.length,
