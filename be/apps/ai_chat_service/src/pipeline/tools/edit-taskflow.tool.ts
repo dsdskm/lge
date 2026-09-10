@@ -11,7 +11,13 @@ import {
   readCurrentGraph,
   resolveTaskAlias,
   readTaskContents,
+  findFlowTailNode,
+  findClosestTaskName,
+  isConcurrentControlTask,
+  readConcurrentChildTaskNames,
+  resolveContentByLooseName,
   resolveProperties,
+  fillPropertiesFromMessage,
   toMatchKey,
   TASKFLOW_CANVAS_SCREEN_KEY,
   type CurrentGraph,
@@ -19,8 +25,8 @@ import {
   type NodeTargetRules,
   type TaskContentRef,
 } from './taskflow-palette'
-import { loadTaskflowLanguageRules } from '../taskflow-language-rules'
-import { taskflowMessage, TASKFLOW_MESSAGE_KEY } from './taskflow-message'
+import { includesConfiguredPhrase, loadTaskflowLanguageRules } from '../taskflow-language-rules'
+import { taskflowMessage, taskflowNodeGuides, TASKFLOW_MESSAGE_KEY, TASKFLOW_TOOL_KEY } from './taskflow-message'
 import { buildApplyDraftAction } from './taskflow-client-action'
 import { trace, traceReqId } from '../trace.util'
 
@@ -62,8 +68,13 @@ type DraftStep = {
   properties?: Record<string, unknown>
 }
 
-function buildDescription(catalogText: string, propertyCatalogText: string): string {
-  return taskflowMessage(TASKFLOW_MESSAGE_KEY.toolEdit, { catalog: catalogText, propertyCatalog: propertyCatalogText })
+// 노드별 지침(llm.tool.edit.node.<task>)은 카탈로그에 있는 Task 것만 {{nodeGuides}} 자리에 붙는다.
+function buildDescription(catalogText: string, propertyCatalogText: string, taskNames: string[]): string {
+  return taskflowMessage(TASKFLOW_MESSAGE_KEY.toolEdit, {
+    catalog: catalogText,
+    propertyCatalog: propertyCatalogText,
+    nodeGuides: taskflowNodeGuides('edit', taskNames),
+  })
 }
 
 function appendedMessage(branch: boolean, anchor: string, label: string): string {
@@ -83,8 +94,9 @@ function describePropertyPairs(properties: Record<string, unknown>): string {
     .join(', ')
 }
 
-function ambiguousEntry(name: string, options: string[]): string {
-  return taskflowMessage(TASKFLOW_MESSAGE_KEY.editAmbiguousEntry, { name, options: options.join(', ') })
+/** 후보가 여러 개인 대상 이름. 표기만 하므로 코드에 둔다. */
+function ambiguousEntry(name: string, _options: string[]): string {
+  return name
 }
 
 function emphasize(values: string[]): string {
@@ -152,6 +164,7 @@ function resolveStep(
   contents: TaskContentRef[],
   requestedProperties: Record<string, unknown> = {},
   unknownPropertyKeys: string[] = [],
+  message = '',
 ): DraftStep | null {
   const contentRef = contentName ? findContentRef(contentName, taskName, contents) : undefined
   // "타임아웃" 처럼 사람이 부르는 이름으로 와도 Task 를 찾는다. 별칭은 property_tms.trigger_phrases 에 있다.
@@ -161,14 +174,22 @@ function resolveStep(
   const contentNameIsTask = contentAsTaskName ? Boolean(store.get(contentAsTaskName)) : false
   const effectiveTaskName = store.get(aliasTaskName)
     ? aliasTaskName
-    : contentRef?.taskName ?? (contentNameIsTask ? contentAsTaskName : undefined)
+    : contentRef?.taskName ??
+      (contentNameIsTask ? contentAsTaskName : undefined) ??
+      // 팔레트에도 Task 이름에도 없으면 마지막으로 오타를 감안한다("puase" -> Pause).
+      // 팔레트를 먼저 본 뒤라서 콘텐츠 이름("Love")이 Task 표현("move")으로 넘어가지 않는다.
+      (contentName && resolveContentByLooseName(contentName, contents)
+        ? undefined
+        : findClosestTaskName(taskName || contentName))
   const semantics = effectiveTaskName ? store.get(effectiveTaskName) : undefined
   if (!semantics) return null
 
   // 속성은 스키마(property_tms.compose_hint.properties)에 있는 키만 남긴다.
   const resolved = resolveProperties(semantics, requestedProperties)
   unknownPropertyKeys.push(...resolved.unknownKeys)
-  const properties = Object.keys(resolved.properties).length > 0 ? resolved.properties : undefined
+  // LLM 이 "3초 타임아웃" 의 값을 빠뜨리면 사용자 문장의 숫자로 채운다(단위 배수는 property_tms 가 정한다).
+  const filled = fillPropertiesFromMessage(semantics, resolved.properties, [message, contentName].join(' '))
+  const properties = Object.keys(filled.properties).length > 0 ? filled.properties : undefined
 
   if (contentRef) {
     return {
@@ -182,9 +203,30 @@ function resolveStep(
     }
   }
 
+  // "인트로 tts" 처럼 Task 를 부르는 말이 섞여 있으면 그것을 떼고 다시 찾는다.
+  if (contentName && semantics.taskType !== TASK_TYPE.control) {
+    const loose = resolveContentByLooseName(contentName, contents)
+    if (loose) {
+      return {
+        label: loose.contentName,
+        taskName: loose.taskName,
+        taskType: store.get(loose.taskName)?.taskType,
+        contentName: loose.contentName,
+        contentId: loose.contentId,
+        taskId: loose.taskId,
+        ...(properties ? { properties } : {}),
+      }
+    }
+  }
+
   // 대상을 지정했는데 팔레트에 없으면, 같은 Task 의 다른 콘텐츠로 임시 채우고 사용자가 바꾸게 한다.
   // 구조가 없으면 뒤이어지는 요청(자식 추가 등)이 전부 막힐 수 있어 임의로 따지지 않고 구조부터 유지한다.
-  if (contentName && toMatchKey(contentAsTaskName) !== toMatchKey(semantics.taskName)) {
+  // 제어 노드는 콘텐츠가 없다. LLM 이 "3초" 처럼 값을 contentName 에 적어 보내도 노드는 그대로 만든다.
+  if (
+    contentName &&
+    semantics.taskType !== TASK_TYPE.control &&
+    toMatchKey(contentAsTaskName) !== toMatchKey(semantics.taskName)
+  ) {
     const placeholder = contents.find((row) => toMatchKey(row.taskName) === toMatchKey(semantics.taskName))
     if (!placeholder) return null
 
@@ -217,7 +259,11 @@ export function createEditTaskflowTool(): ToolDefinition | null {
   if (!catalogText) return null
 
   // 설명은 prompt 테이블에서 온다. 행이 없으면 tool 을 등록하지 않아 설정 누락이 드러나게 한다.
-  const description = buildDescription(catalogText, describeTaskProperties(store.list()))
+  const description = buildDescription(
+    catalogText,
+    describeTaskProperties(store.list()),
+    store.list().map((task) => task.taskName),
+  )
   if (!description) return null
 
   return {
@@ -257,6 +303,9 @@ export function createEditTaskflowTool(): ToolDefinition | null {
       const operations = toEditOperations(args.operations)
       if (operations.length === 0) return {}
 
+      // "3초 타임아웃" 처럼 LLM 이 값을 빠뜨렸을 때 문장의 숫자로 채우는 데 쓴다.
+      const userMessage = String((ctx.context as Record<string, unknown> | undefined)?.__userMessage ?? '').trim()
+
       // 순번 표기("두번째" 등)는 rule 테이블에서 읽어 코드에 언어별 문구를 두지 않는다.
       const languageRules = await loadTaskflowLanguageRules(TASKFLOW_CANVAS_SCREEN_KEY)
       const nodeTargetRules: NodeTargetRules = {
@@ -266,6 +315,11 @@ export function createEditTaskflowTool(): ToolDefinition | null {
       }
 
       const graph: CurrentGraph = readCurrentGraph(ctx)
+      // "우측/뒤/다음" 이라고 말했는지. 제어 노드에 붙일 때 자식이냐 다음 순서냐를 가른다.
+      const attachesToRightSide = includesConfiguredPhrase(userMessage, languageRules.nodeAttachRightPhrases)
+      // 위치를 말하지 않은 추가 요청의 기준 노드. Start 에서 이어지는 흐름의 끝이다.
+      const flowTailNode = findFlowTailNode(graph)
+      const flowTailName = flowTailNode ? formatNodeTarget(flowTailNode) : ''
       ctx.log?.log(
         `[${TOOL_NAME}] ops=${JSON.stringify(operations)} graphNodes=${graph.nodes.map(describeGraphNode).join(' | ') || '-'}`,
       )
@@ -307,6 +361,9 @@ export function createEditTaskflowTool(): ToolDefinition | null {
       const createdLabels: string[] = []
       // 요청한 대상을 못 찾아 다른 콘텐츠로 임시 채운 경우. 채팅에 그대로 노출해 바꿔야 함을 알린다.
       const placeholders: string[] = []
+      // 동시 실행 제어 노드마다 이번 호출에서 이미 붙인 자식 Task. 같은 Task 를 두 번 붙이지 않는다.
+      const concurrentChildTasksByAnchor = new Map<string, string[]>()
+      const duplicateConcurrent: string[] = []
       // refId -> 그 노드를 만드는 insertAfter 인덱스. 동명 노드를 여러 개 만들 때 섞이지 않게 한다.
       const insertIndexByRefId = new Map<string, number>()
 
@@ -502,13 +559,14 @@ export function createEditTaskflowTool(): ToolDefinition | null {
           contents,
           operation.properties,
           unknownProperties,
+          userMessage,
         )
         if (!step) {
           missing.push(missingName(operation.contentName, operation.taskName, operation.target, operation.after))
           continue
         }
         if (step.placeholderFor) {
-          placeholders.push(taskflowMessage(TASKFLOW_MESSAGE_KEY.editPlaceholderPair, { requested: step.placeholderFor, label: step.label }))
+          placeholders.push(`${step.placeholderFor} → ${step.label}`)
         }
 
         if (operation.action === 'replace') {
@@ -525,16 +583,23 @@ export function createEditTaskflowTool(): ToolDefinition | null {
         if (!tailIsExplicit(operation)) {
           // 자식인데 기준이 없으면 방금 만든 제어 노드를 부모로 삼는다.
           const inferredParentIndex = operation.branch ? lastControlInsertIndex : undefined
+          // 자식도 아니고 기준도 없으면 Start 에서 이어지는 흐름의 끝에 잇는다.
+          // 노드는 입력 엣지를 하나만 받으므로, 흐름 끝에 붙이는 것이 기존 구성을 건드리지 않는 방법이다.
+          const flowTail = inferredParentIndex === undefined && !operation.branch ? flowTailName : ''
 
           insertAfter.push({
-            after: '',
+            after: flowTail,
             ...(inferredParentIndex !== undefined ? { afterCreatedIndex: inferredParentIndex } : {}),
             step,
             appendOnly: true,
             sourceHandle: operation.branch ? 'left' : 'right',
             targetHandle: 'left',
           })
-          applied.push(taskflowMessage(TASKFLOW_MESSAGE_KEY.editAppliedAppend, { label: step.label }))
+          applied.push(
+            flowTail
+              ? appendedMessage(false, flowTail, step.label)
+              : taskflowMessage(TASKFLOW_MESSAGE_KEY.editAppliedAppend, { label: step.label }),
+          )
           createdLabels.push(step.label)
           if (step.taskType === TASK_TYPE.control) lastControlInsertIndex = insertAfter.length - 1
           if (operation.refId) insertIndexByRefId.set(operation.refId, insertAfter.length - 1)
@@ -582,14 +647,40 @@ export function createEditTaskflowTool(): ToolDefinition | null {
 
         // "모든 Parallel 에" 같은 요청은 기준 노드 수만큼 같은 삽입을 펼친다.
         for (const anchor of anchorTargets) {
+          // "Parallel 에 X 추가" 는 자식이다. 우측/뒤/다음 이라고 말한 경우만 다음 순서로 잇는다.
+          // 제어 노드는 자식으로 동작을 품는 노드라서, LLM 이 branch 를 빠뜨려도 여기서 바로잡는다.
+          const branch =
+            operation.branch ||
+            (anchor.taskType === TASK_TYPE.control && !attachesToRightSide)
+
+          // 동시 실행 제어 노드는 같은 Task 자식을 둘 이상 둘 수 없다(얼굴 2개를 동시에 보여줄 수 없다).
+          if (branch && isConcurrentControlTask(anchor.taskName ?? '')) {
+            const usedTasks = new Set(
+              [
+                ...readConcurrentChildTaskNames(graph, anchor.id),
+                ...(concurrentChildTasksByAnchor.get(anchor.id) ?? []),
+              ].map((name) => toMatchKey(name)),
+            )
+
+            if (usedTasks.has(toMatchKey(step.taskName))) {
+              duplicateConcurrent.push(step.label)
+              continue
+            }
+
+            concurrentChildTasksByAnchor.set(anchor.id, [
+              ...(concurrentChildTasksByAnchor.get(anchor.id) ?? []),
+              step.taskName,
+            ])
+          }
+
           insertAfter.push({
             after: formatNodeTarget(anchor),
             step,
             appendOnly: true,
-            sourceHandle: operation.branch ? 'left' : 'right',
+            sourceHandle: branch ? 'left' : 'right',
             targetHandle: 'left',
           })
-          applied.push(appendedMessage(operation.branch, describeGraphNodeForUser(anchor), step.label))
+          applied.push(appendedMessage(branch, describeGraphNodeForUser(anchor), step.label))
         }
         createdLabels.push(step.label)
         if (step.taskType === TASK_TYPE.control) lastControlInsertIndex = insertAfter.length - 1
@@ -630,6 +721,11 @@ export function createEditTaskflowTool(): ToolDefinition | null {
       if (placeholders.length > 0) {
         lines.push(taskflowMessage(TASKFLOW_MESSAGE_KEY.editPlaceholders, { pairs: emphasize(placeholders) }))
       }
+      if (duplicateConcurrent.length > 0) {
+        lines.push(
+          taskflowMessage(TASKFLOW_MESSAGE_KEY.editDuplicateConcurrent, { names: emphasize(duplicateConcurrent) }),
+        )
+      }
       if (missing.length > 0) {
         lines.push(taskflowMessage(TASKFLOW_MESSAGE_KEY.editMissing, { names: emphasize(missing) }))
       }
@@ -661,7 +757,7 @@ export function createEditTaskflowTool(): ToolDefinition | null {
       })
 
       return {
-        ...buildApplyDraftAction(draft, ctx, TASKFLOW_MESSAGE_KEY.toolEdit),
+        ...buildApplyDraftAction(draft, ctx, TASKFLOW_TOOL_KEY.edit),
         assistantText: lines.filter(Boolean).join('\n'),
       }
     },

@@ -71,8 +71,8 @@ const Terms = () => {
       // 같은 값이 단계 순서 잠금도 풀기 때문에 이후에는 맵 스캔·시맨틱을 건너뛰고 업로드로도
       // 들어갈 수 있다(routes.jsx getSetupProgress).
       await completeInitialSetup()
-      // '/map' 은 화면이 없는 부모 경로라 맵 설정 첫 화면으로 리다이렉트된다(router/routes.jsx mapIndex).
-      navigate('/map', { replace: true })
+      // '/download' 맵 설정 첫 화면으로 리다이렉트된다(router/routes.jsx mapIndex).
+      navigate('/download', { replace: true })
       window.location.reload()
     } catch (error) {
       setErr(`초기 설정 완료 처리 실패: ${error.message}`)

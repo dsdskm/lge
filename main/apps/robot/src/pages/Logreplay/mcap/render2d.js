@@ -55,7 +55,8 @@ export function createCanvasRenderer({
   playTimeSecRef,
   viewRef,
   smoothRef,
-  renderOptionsRef
+  renderOptionsRef,
+  seekEpochRef
 }) {
   // ── 디버그 HUD/축/로그 토글 (운영 기본 OFF) ───────────────────────
   const DEBUG_OVERLAY = false // 좌상단/우하단 디버그 텍스트
@@ -66,6 +67,11 @@ export function createCanvasRenderer({
 
   // 최근 표시한 DWA goal (hold-last용)
   let lastDwaGoal = null // { tSec, x, y, yaw, frame_id }
+
+  // ✅ 화면에 그릴 "지나온 경로(초록)" 누적 버퍼. 데이터 캐시(pts)와 별개다.
+  //   seekEpochRef가 바뀌면(사용자 seek) 비우고, 재생으로 시간이 전진할 때만 정밀 위치를 추가한다.
+  let traveledPoints = []
+  let lastSeenSeekEpoch = -1
 
   // ─────────────────────────────────────────────
   // 렌더 설정 토글
@@ -376,6 +382,68 @@ export function createCanvasRenderer({
     return { x: curX, y: curY, yaw: curYaw, tSec: tSecCutoff ?? 0 }
   }
 
+  // getPoseAtTime은 데이터가 없으면 "가장 가까운 끝점"으로 클램프한다(그래야 마커가 항상 어딘가에 찍힘).
+  // 이 클램프는 마커/초록 경로에 그대로 쓰면 안 된다 — "추측값"이기 때문이다.
+  //
+  // ⚠️ 실제로 겪은 버그(두 종류):
+  //   1) seek로 새 위치에 도착하면 그 구간 정밀 데이터(pts)는 비동기로 새로 fetch된다. 요청이 아직
+  //      안 끝난 프레임에 클램프값을 그대로 쓰면 "전혀 다른(예전) 위치"가 정상 값처럼 나온다.
+  //   2) "벽시계 유예 시간이 지나면 무조건 신뢰"하는 절충안을 시도했으나, 이러면 같은 시각으로
+  //      반복 seek할 때마다 그 순간 fetch가 끝났는지 여부(타이밍)에 따라 클램프 결과가 매번 달라져,
+  //      "같은 시각인데 위치가 다르다"는 문제가 그대로 재발했다.
+  //   → 결론: 타이밍에 의존하는 절충 없이, pts가 tSecCutoff를 "진짜로 감싸고 있을 때"(정확히 일치하는
+  //     경우 포함)만 신뢰한다. 감싸지 못하면(클램프가 필요한 상황) 무조건 null → 호출부가 sparse
+  //     궤적(routePts)으로 폴백한다. routePts는 안정적이므로 같은 시각은 항상 같은 값이 나온다.
+  //     대가: seek 직후 아주 잠깐(또는 배속이 로딩보다 빨라 따라잡지 못하는 순간) 마커/초록이
+  //     정밀 대신 sparse 정밀도로 보일 수 있다. 그래도 "매번 다른 값"보다 "항상 같은 값"이 우선이다.
+  function getPosePreciseIfBracketed(pts, tSecCutoff) {
+    if (!Array.isArray(pts) || pts.length === 0) return null
+    let lo = 0,
+      hi = pts.length
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if ((pts[mid].tSec ?? 0) <= tSecCutoff) lo = mid + 1
+      else hi = mid
+    }
+    const idx = lo - 1
+    if (idx <= -1) return null // tSecCutoff보다 이른 데이터가 전혀 없음 → 클램프 필요, 신뢰 불가
+    if (idx >= pts.length - 1) {
+      // 마지막 샘플이 정확히 tSecCutoff와 같으면 보간 없이 그 점 자체이므로 안전
+      if (Math.abs((pts[pts.length - 1].tSec ?? 0) - tSecCutoff) < 1e-6) return getPoseAtTime(pts, tSecCutoff)
+      return null // tSecCutoff보다 늦은 데이터가 없음 → 클램프 필요, 신뢰 불가
+    }
+    return getPoseAtTime(pts, tSecCutoff) // 진짜로 감싸는 두 샘플 사이 보간 → 안전
+  }
+
+  // costmap/lidar/goal의 "위치 보정용" pose는 마커와 다른 기준이 필요하다.
+  // 마커는 "같은 시각에 항상 같은 값"이 나와야 해서 엄격한 브래킷만 신뢰했지만(위 함수),
+  // 이 셋은 매 프레임 새로 계산되는 1회성 보정값이라 그 정도의 결정성이 필요 없다 — 그냥
+  // "터무니없이 먼 옛 위치로 클램프되는 것"만 막으면 된다. 브래킷을 엄격히 요구하면, 코스트맵/
+  // LiDAR 메시지의 캡처 시각이 pts 윈도우 경계에 살짝 걸리기만 해도 매 프레임 계속 실패해서
+  // 거의 항상 안 그려지는 회귀가 났다(실측).
+  //
+  // ⚠️ maxDistSec=3으로 완화했다가 다른 회귀가 났다: seek 직후 pts가 아직 새 위치를 못 감싸도
+  //   "3초 이내로 가깝다"는 이유로 옛(살짝 어긋난) 위치를 그대로 써버려, 데이터는 새 것인데
+  //   위치만 최대 3초 가까이 부정확한 상태가 지속됐다(체감상 "옛 값이 ~1초 남는다"로 보였다).
+  //   경계 오버슈트(원인이었던 것)는 보통 수십~수백ms 수준이므로, 그 정도만 봐주는 값으로 줄인다.
+  function getPoseIfClose(pts, tSecCutoff, maxDistSec = 0.3) {
+    if (!Array.isArray(pts) || pts.length === 0) return null
+    let lo = 0,
+      hi = pts.length
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if ((pts[mid].tSec ?? 0) <= tSecCutoff) lo = mid + 1
+      else hi = mid
+    }
+    const idx = lo - 1
+    if (idx <= -1) {
+      if ((pts[0].tSec ?? 0) - tSecCutoff > maxDistSec) return null
+    } else if (idx >= pts.length - 1) {
+      if (tSecCutoff - (pts[pts.length - 1].tSec ?? 0) > maxDistSec) return null
+    }
+    return getPoseAtTime(pts, tSecCutoff)
+  }
+
   /**
    * frames: [{tSec, grid}, ...] 시간 오름차순 가정
    * curT: 현재 재생 시각
@@ -465,7 +533,15 @@ export function createCanvasRenderer({
   }
 
   // 보이는 영역만 + 화면 픽셀 간격 LOD 경로 드로잉
-  function drawPolylineLOD(ctx, pts, { mode, color, tSecCutoff, zoom, offX = 0, offY = 0, fastWS, worldViewRect }) {
+  // maxGapSec: 인접 점의 시간 간격이 이 값을 넘으면 "연속된 경로가 아니다"로 보고 선을 끊는다.
+  //   pose 캐시는 seek 시 리셋되지 않고 계속 누적되므로, 여기저기 seek하면 서로 떨어진 시간대의
+  //   점들이 한 배열에 섞인다. 끊지 않으면 그 사이를 직선으로 이어 지도를 가로지르는 가짜 경로가 그려진다.
+  //   (촘촘한 경로=작은 값, 파일 전체 sparse 궤적=간격이 원래 크므로 제한 없음)
+  function drawPolylineLOD(
+    ctx,
+    pts,
+    { mode, color, tSecCutoff, zoom, offX = 0, offY = 0, fastWS, worldViewRect, maxGapSec = Infinity }
+  ) {
     if (!Array.isArray(pts) || pts.length < 2) return
 
     const minStepPx = Math.max(1.25, 0.9 + 0.9 * zoom)
@@ -489,24 +565,37 @@ export function createCanvasRenderer({
     let moved = false
     let lastSX = NaN,
       lastSY = NaN
+    let lastT = NaN
+    // 직전에 화면 밖으로 잘려나간 점이 있으면 다음 점은 새 선으로 시작해야 한다.
+    // (예전에는 그냥 continue해서, 화면 밖 구간을 직선으로 가로질러 이었다)
+    let breakNext = false
 
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i]
       const t = p.tSec ?? 0
+      // 시간 경계 필터. 정렬된 배열이라 past는 뒤쪽, future는 앞쪽만 잘려 중간 구멍이 생기지 않는다.
       if (wantPast ? t > tSecCutoff : t < tSecCutoff) continue
 
       const wx = p.x + offX
       const wy = p.y + offY
-      if (wx < cull.minX || wx > cull.maxX || wy < cull.minY || wy > cull.maxY) continue
-
-      const { sx, sy } = fastWS(wx, wy)
-      if (!moved) {
-        ctx.moveTo(sx, sy)
-        moved = true
-        lastSX = sx
-        lastSY = sy
+      if (wx < cull.minX || wx > cull.maxX || wy < cull.minY || wy > cull.maxY) {
+        breakNext = true
         continue
       }
+
+      const gapTooBig = Number.isFinite(lastT) && t - lastT > maxGapSec
+      const { sx, sy } = fastWS(wx, wy)
+      if (!moved || breakNext || gapTooBig) {
+        ctx.moveTo(sx, sy)
+        moved = true
+        breakNext = false
+        lastSX = sx
+        lastSY = sy
+        lastT = t
+        continue
+      }
+      // 시간은 항상 갱신한다(제자리에 오래 머문 구간을 시간 갭으로 오해하지 않도록).
+      lastT = t
       const dx = sx - lastSX
       const dy = sy - lastSY
       if (dx * dx + dy * dy < minStepPx * minStepPx) continue
@@ -701,7 +790,6 @@ export function createCanvasRenderer({
 
   // ─────────────────────────────────────────────
   // render() 반환
-  // ─────────────────────────────────────────────
   return function render() {
     const cvs = canvasRef.current
     if (!cvs) return
@@ -746,16 +834,16 @@ export function createCanvasRenderer({
       _sortedSeries.add(goalsRaw)
     }
 
-    // 플레이 시간 계산
-    let tSecCutoff = 0,
-      duration = 0
-    if (pts.length >= 2) {
-      const t0 = pts[0].tSec ?? 0
-      const t1 = pts[pts.length - 1].tSec ?? 0
-      duration = t1 - t0
-      const cur = Math.min(Math.max(0, playTimeSecRef.current), duration)
-      tSecCutoff = t0 + cur
-    }
+    // 플레이 시간(= 지나온/남은 경계선, 그리고 costmap·LiDAR·goal 픽의 기준 시각)
+    //
+    // ⚠️ 과거 버그: pts(재생 위치 윈도우 캐시)의 첫 시각 t0와 캐시 구간 길이로
+    //    `tSecCutoff = t0 + clamp(재생시각, 0, 캐시길이)`를 계산했다.
+    //    그런데 이 캐시는 seek 시 리셋되고 그 위치부터 다시 누적되므로 t0와 길이가 매번 달라진다.
+    //    그래서 초기 로드(t0=0)에서만 우연히 맞고, seek 후에는 경계선이 엉뚱한 곳으로 튀어
+    //    남은 경로(회색)가 seek 위치에 따라 다르게 잘렸다. costmap/LiDAR/goal 선택도 같이 어긋났다.
+    //
+    //    pose·routePts의 tSec과 playTimeSecRef는 같은 기준(재생 시작 = 0초)이므로 그대로 쓰면 된다.
+    const tSecCutoff = Math.max(0, Number(playTimeSecRef.current) || 0)
 
     const padding = 24
     const fit = computeFit(grid, pts, cssW, cssH, padding)
@@ -875,14 +963,22 @@ export function createCanvasRenderer({
           const isMap = fid === 'map'
           const isOdom = fid === 'odom'
 
-          const poseNow = getPoseAtTime(pts, curT)
+          // ⚠️ 그리기 "위치"를 계산하는 값이라, 클램프(추측)를 쓰면 안 된다. 데이터 자체는 새 것이어도
+          //   위치 계산이 옛 pose로 클램프되면 엉뚱한 화면 좌표에 그려진다(seek 직후 ~1초간 관측됨).
+          //   다만 마커처럼 매번 완벽히 결정적일 필요는 없는 1회성 보정값이라 getPoseIfClose(적당히
+          //   가까우면 인정)를 쓴다 — 엄격한 브래킷을 요구했다가 costmap 캡처 시각이 pts 윈도우
+          //   경계에 살짝 걸리는 것만으로 매 프레임 실패해 거의 안 그려지는 회귀가 실측됐다.
+          const poseNow = getPoseIfClose(pts, curT)
+          let poseUnavailable = false
 
           let tx = cox,
             ty = coy,
             trot = yaw
 
-          if (APPLY_BASE_FRAME_TRANSLATION && isBase && poseNow) {
-            if (APPLY_POSE_YAW_FOR_BASE_FRAME && Number.isFinite(poseNow.yaw)) {
+          if (APPLY_BASE_FRAME_TRANSLATION && isBase) {
+            if (!poseNow) {
+              poseUnavailable = true
+            } else if (APPLY_POSE_YAW_FOR_BASE_FRAME && Number.isFinite(poseNow.yaw)) {
               const c = Math.cos(poseNow.yaw),
                 s = Math.sin(poseNow.yaw)
               const rx = c * cox - s * coy
@@ -901,11 +997,14 @@ export function createCanvasRenderer({
             //   같은 시각의 map 프레임 pose(SLAM 보정됨) 차이를 costmap 원점에 적용한다.
             //   (map 프레임은 루프클로저로 계속 보정되지만 costmap 원점은 odom 그대로라 시간이
             //   지날수록 로봇과 어긋나 보이던 문제를 해결)
+            //
+            // ⚠️ odomAtT/mapAtT도 클램프하면 안 된다 — 둘 중 하나라도 옛(clamp) 값이면 계산된 tx,ty가
+            //   완전히 엉뚱한 화면 위치가 된다(이게 "seek 직후 잘못된 위치에 잠깐 보이는" 진짜 원인).
             const odomSeries = Array.isArray(odomRawPointsRef?.current) ? odomRawPointsRef.current : []
             const tRef = chosenRec && Number.isFinite(chosenRec.tSec) ? chosenRec.tSec : curT
-            if (odomSeries.length >= 2 && pts.length >= 2) {
-              const odomAtT = getPoseAtTime(odomSeries, tRef)
-              const mapAtT = getPoseAtTime(pts, tRef)
+            const odomAtT = getPoseIfClose(odomSeries, tRef)
+            const mapAtT = getPoseIfClose(pts, tRef)
+            if (odomAtT && mapAtT) {
               let dyaw = (mapAtT.yaw || 0) - (odomAtT.yaw || 0)
               while (dyaw > Math.PI) dyaw -= 2 * Math.PI
               while (dyaw < -Math.PI) dyaw += 2 * Math.PI
@@ -916,6 +1015,8 @@ export function createCanvasRenderer({
               tx = mapAtT.x + (c * relX - s * relY)
               ty = mapAtT.y + (s * relX + c * relY)
               trot = yaw + dyaw
+            } else {
+              poseUnavailable = true
             }
           }
 
@@ -925,7 +1026,7 @@ export function createCanvasRenderer({
               ? Math.abs(chosenRec.tSec - curT_forLCM) > MAX_FRAME_AGE_SEC
               : false
 
-          const skip = (Array.isArray(frames) && frames.length > 0 && !chosenRec) || ageTooOld
+          const skip = (Array.isArray(frames) && frames.length > 0 && !chosenRec) || ageTooOld || poseUnavailable
 
           if (!skip) {
             ctx.save()
@@ -984,9 +1085,12 @@ export function createCanvasRenderer({
     if (showLidar) {
       const scans = Array.isArray(lidarScansRef?.current) ? lidarScansRef.current : []
       const scan = scans.length ? scans[scans.length - 1] : null
-      if (scan && scan.localPts && scan.localPts.length >= 2) {
-        const scanT = Number.isFinite(scan.tSec) ? scan.tSec : tSecCutoff
-        const scanPose = getPoseAtTime(pts, scanT)
+      // ⚠️ scanPose도 클램프하면 안 된다 — 스캔 자체는 새 데이터라도, 위치가 옛(clamp) pose로
+      //   계산되면 로봇과 무관한 화면 위치에 찍힌다(같은 원인의 costmap 버그와 동일 패턴).
+      //   감싸지 못하면 이번 프레임은 그리지 않는다(scan이 없으면 null이라 자연히 그려지지 않음).
+      const scanT = scan && Number.isFinite(scan.tSec) ? scan.tSec : tSecCutoff
+      const scanPose = scan ? getPoseIfClose(pts, scanT) : null
+      if (scan && scan.localPts && scan.localPts.length >= 2 && scanPose) {
         const c = Math.cos(scanPose.yaw),
           s = Math.sin(scanPose.yaw)
         const px = scanPose.x
@@ -1059,7 +1163,9 @@ export function createCanvasRenderer({
       }
 
       const curT_forGoal = tSecCutoff + goalTimeShiftSec
-      const poseForGoal = getPoseAtTime(pts, curT_forGoal)
+      // ⚠️ base/odom 프레임 목표점 보정에만 쓰이는 값이라 클램프하면 안 된다(다른 셋과 동일 이유).
+      //   map 프레임 목표점(이 프로젝트의 실제 케이스)은 이 값을 아예 안 써서 영향받지 않는다.
+      const poseForGoal = getPoseIfClose(pts, curT_forGoal)
 
       try {
         const pick = pickDwaGoalRecord(goals, curT_forGoal, lastDwaGoal, DWA_CFG)
@@ -1072,6 +1178,7 @@ export function createCanvasRenderer({
         const fid = String(goal.frame_id || '').toLowerCase()
 
         if (DWA_CFG.APPLY_BASE_FRAME && (fid.includes('base') || fid.includes('odom'))) {
+          if (!poseForGoal) throw new Error('pose-not-bracketed') // 보정 불가 → 이번 프레임은 그리지 않음
           if (DWA_CFG.APPLY_POSE_YAW) {
             const c = Math.cos(poseForGoal.yaw),
               s = Math.sin(poseForGoal.yaw)
@@ -1194,30 +1301,86 @@ export function createCanvasRenderer({
     let curPose = null
     const viewRect = getWorldViewRect(cssW, cssH, originX, originY, panX, panY, scale)
 
-    if (pts.length >= 2) {
-      // Trajectory = 지나온 경로(초록)
-      if (showTrajectory) {
-        drawPolylineLOD(ctx, pts, {
-          mode: 'past',
-          color: '#10B981',
-          tSecCutoff,
-          zoom: v.zoom,
-          offX,
-          offY,
-          fastWS,
-          worldViewRect: viewRect
-        })
-      }
+    // ⚠️ 지나온 경로(초록)는 "실제로 재생하며 지나간 구간"만 표시해야 한다.
+    //    데이터 캐시(pts)는 성능을 위해 seek해도 리셋되지 않고 항상 누적되는데, 예전에는 이 캐시를
+    //    그대로 초록으로 그려서 seek만 해도(재생 없이) 지나온 경로가 보이는 문제가 있었다.
+    //    → 화면 표시용 누적 버퍼(traveledPoints, 아래 클로저 변수)를 따로 두고, 사용자 seek 신호
+    //      (seekEpochRef, 진행바 드래그/스텝/재시작에서만 증가)가 바뀌면 그 버퍼를 비운다.
+    //      이후 재생으로 시간이 실제로 전진할 때만, 그 순간의 "정밀"(pts 윈도우 캐시) 위치를 한 점씩
+    //      추가한다. → seek 직후에는 점이 1개(또는 0개)라 아무것도 안 그려지고, 재생해야만 자란다.
+    const curEpoch = Number(seekEpochRef?.current) || 0
+    if (curEpoch !== lastSeenSeekEpoch) {
+      lastSeenSeekEpoch = curEpoch
+      traveledPoints = []
+      // ⚠️ costmap/goal의 hold-last 캐시(lastLocalCostmap/lastDwaGoal)도 seek 시 반드시 비워야 한다.
+      //    이 값들은 frames 배열이 비어도(위 traveledPoints처럼 데이터 훅이 캐시를 비워도) 그대로
+      //    남는 별도 클로저 변수라서, 비우지 않으면 새 프레임이 아직 안 왔을 때 pickLocalCostmapFrame/
+      //    pickDwaGoalRecord의 hold-last 분기가 "seek 이전, 전혀 다른 위치"의 옛 프레임을 골라
+      //    잠깐 화면에 보여준다(같은 종류의 문제가 useLogReplayData.js의 즉시-비우기 수정으로
+      //    한 번 막혔지만, 이 두 클로저는 그 수정의 영향을 안 받는 별도 상태라 따로 리셋해야 한다).
+      lastLocalCostmap = null
+      lastDwaGoal = null
+    }
 
-      const poseNow = getPoseAtTime(pts, tSecCutoff)
+    // ✅ 마커(로봇 위치)와 초록 경로 seed 가능 여부를 "같은 판정 하나"로 정한다.
+    //    pts가 tSecCutoff를 진짜로 감싸면(또는 정확히 일치) 정밀값, 아니면 무조건 sparse 폴백.
+    //    타이밍(벽시계 유예, 거리 임계값) 기반 절충을 전부 제거했다 — 그런 절충은 "이번엔 fetch가
+    //    끝났는지"에 따라 결과가 매번 달라져 "같은 시각인데 위치가 다르다"는 문제를 반복해서 냈다.
+    //    이제는 순수하게 "pts가 그 시각의 실제 데이터를 갖고 있는가"만으로 결정되므로, 같은 시각은
+    //    (routePts가 이미 로드된 이후) 언제 seek해도 항상 같은 값이 나온다.
+    const precisePoseNow = getPosePreciseIfBracketed(pts, tSecCutoff)
+    const hasPreciseNow = precisePoseNow != null
+    const poseNow = precisePoseNow || (routePts.length >= 2 ? getPoseAtTime(routePts, tSecCutoff) : null)
+
+    if (poseNow) {
+      // ⚠️ 정밀 데이터가 아직 없으면(seek 직후 fetch 대기 중) 초록 시작점을 심지 않는다.
+      //    sparse 폴백 값으로 seed하면 그 좌표가 부정확해, 잠시 후 정밀 데이터가 도착했을 때
+      //    첫 두 점 사이에 어색한 꺾임이 생긴다. 정밀 데이터가 올 때까지 그냥 기다린다(마커는 계속 보임).
+      if (hasPreciseNow) {
+        const lastT = traveledPoints.length ? traveledPoints[traveledPoints.length - 1].tSec : -Infinity
+        if (traveledPoints.length === 0 || tSecCutoff - lastT > 0.001) {
+          traveledPoints.push({ tSec: tSecCutoff, x: poseNow.x, y: poseNow.y })
+        }
+      }
+      // 무한 성장 방지(파일이 매우 길 때)
+      const TRAVELED_MAX = 20000
+      if (traveledPoints.length > TRAVELED_MAX) traveledPoints = traveledPoints.slice(-TRAVELED_MAX)
+
       const { sx, sy } = fastWS(poseNow.x + offX, poseNow.y + offY)
       markerPos = { sx, sy }
       curPose = { x: poseNow.x + offX, y: poseNow.y + offY, yaw: poseNow.yaw }
     }
 
-    // Planned Path = 남은 경로(회색) — 파일 전체 sparse 궤적 미리보기 중 현재 이후 구간
+    if (showTrajectory && traveledPoints.length >= 2) {
+      drawPolylineLOD(ctx, traveledPoints, {
+        mode: 'past',
+        color: '#10B981',
+        tSecCutoff,
+        zoom: v.zoom,
+        offX,
+        offY,
+        fastWS,
+        worldViewRect: viewRect
+        // traveledPoints는 매 프레임 순증가로만 쌓여 갭이 생기지 않으므로 maxGapSec 불필요.
+      })
+    }
+
+    // 남은 경로(회색) — 파일 전체 sparse 궤적(routePts) 하나만 시각으로 나눈다.
+    //
+    // ⚠️ 접합점(로봇 위치와 이어붙이는 시작점)을 pts(정밀 윈도우 캐시)에서 가져오면 안 된다.
+    //    pts는 seek할 때마다 새로 비동기 fetch되는데, 그 요청이 아직 안 끝난 순간에 렌더링하면
+    //    "직전 seek 위치"의 낡은 값을 그대로 쓰게 된다. 그러면 같은 tSecCutoff로 여러 번 seek해도
+    //    렌더링 시점의 네트워크 타이밍에 따라 접합점이 매번 달라지고, 회색선 전체 모양이 흔들린다.
+    //    → routePts 자체에서 보간한 위치만 쓴다. routePts는 배경 스캔이 끝나면 고정되므로,
+    //      같은 tSecCutoff는 항상 같은 접합점 → 항상 같은 회색선이 된다(재현 가능).
+    const routeJoinPose = routePts.length >= 2 ? getPoseAtTime(routePts, tSecCutoff) : null
     if (showPlannedPath && routePts.length >= 2) {
-      drawPolylineLOD(ctx, routePts, {
+      const futurePts = routeJoinPose
+        ? [{ tSec: tSecCutoff, x: routeJoinPose.x, y: routeJoinPose.y }, ...routePts].sort(
+            (a, b) => (a.tSec ?? 0) - (b.tSec ?? 0)
+          )
+        : routePts
+      drawPolylineLOD(ctx, futurePts, {
         mode: 'future',
         color: '#9CA3AF',
         tSecCutoff,

@@ -1419,7 +1419,10 @@ function MapCanvas({
           .map((corner) => {
             const dx = corner.px - rotate.center.px
             const dy = corner.py - rotate.center.py
-            return canvasToWorld(rotate.center.px + dx * cos - dy * sin, rotate.center.py + dx * sin + dy * cos)
+            const world = canvasToWorld(rotate.center.px + dx * cos - dy * sin, rotate.center.py + dx * sin + dy * cos)
+            // canvasToWorld 는 x,y 만 돌려준다 — BE(map_obstacles.points)가 기대하는 {x,y,z}
+            // 3요소를 여기서 채워야 회전 뒤 저장 시 z 가 빠지지 않는다.
+            return world && { ...world, z: OBSTACLE_POINT_Z }
           })
           .filter(Boolean)
         if (worldPoints.length === 4) {
@@ -1440,7 +1443,12 @@ function MapCanvas({
           return
         }
         const canvasCorners = resizeRotatedRectCorners(resize.corners, resize.fixedIndex, point)
-        const worldPoints = canvasCorners.map((corner) => canvasToWorld(corner.px, corner.py)).filter(Boolean)
+        // canvasToWorld 는 x,y 만 돌려준다 — BE(map_obstacles.points)가 기대하는 {x,y,z} 3요소를
+        // 여기서 채워야 리사이즈 뒤 저장 시 z 가 빠지지 않는다.
+        const worldPoints = canvasCorners
+          .map((corner) => canvasToWorld(corner.px, corner.py))
+          .filter(Boolean)
+          .map((world) => ({ ...world, z: OBSTACLE_POINT_Z }))
         if (worldPoints.length === 4) {
           onObstacleResizeRef.current?.(resize.id, { shape: OBSTACLE_SHAPE_RECTANGLE, points: worldPoints })
         }

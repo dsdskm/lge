@@ -386,8 +386,8 @@ function InnerCanvas() {
                       ? 'canvas.edge.connect.denyControlSingleRightOut'
                       : denyReason === 'control-single-left-in'
                         ? 'canvas.edge.connect.denyControlSingleLeftIn'
-                        : denyReason === 'parallel-duplicate-content-type'
-                          ? 'canvas.edge.connect.denyParallelDuplicateContentType'
+                        : denyReason === 'parallel-duplicate-task'
+                          ? 'canvas.edge.connect.denyParallelDuplicateTask'
                           : 'canvas.edge.connect.denyDefault'
 
       toast.warning(t(messageKey))

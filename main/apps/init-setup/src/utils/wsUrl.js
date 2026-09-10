@@ -1,5 +1,5 @@
 /**
- * 텔레메트리 WebSocket URL 해석.
+ * init-setup-be WebSocket URL 해석(텔레메트리 릴레이 / map-sync 완료 통지).
  *
  * 브라우저는 zenoh 에 직접 붙지 않는다 — zenoh-bridge-ros2dds 는 tcp/7448(zenoh)과 8001(REST)을
  * loopback 으로만 리슨하고 WebSocket(remote-api) 플러그인이 없다. 그래서 init-setup-be 가 브릿지를
@@ -16,27 +16,45 @@
  *   폴백으로 두면 로봇 빌드가 조용히 foxglove 로 되돌아간다.
  */
 const TELEMETRY_PATH = '/telemetry'
+// map-sync(다운로드/업로드) 완료 통지 WS. init-setup-be 의 MAP_SYNC_WS_PATH 기본값과 같아야 한다
+// (config.mapSync.wsPath). nginx 도 이 경로만 별도로 Upgrade 프록시한다(docker/nginx.conf).
+const MAP_SYNC_PATH = '/map-sync/ws'
+
+/** 위 주소 규칙(현재 페이지 기준, dev 는 BE 포트 직결)을 경로별로 공유한다. */
+function resolvePathWsUrl(path) {
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const host = window.location.hostname || 'localhost'
+
+  // dev 서버에는 WS 프록시가 없다 — BE 를 직접 부른다.
+  if (import.meta.env.DEV) {
+    const port = import.meta.env.VITE_BE_PORT
+    return `${wsProtocol}//${host}${port ? `:${port}` : ''}${path}`
+  }
+
+  return `${wsProtocol}//${window.location.host}${path}`
+}
 
 export function resolveWsUrl() {
   const override = import.meta.env.VITE_TELEMETRY_WS_URL
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const host = window.location.hostname || 'localhost'
 
   if (override) {
     try {
       const url = new URL(override)
-      url.hostname = host
+      url.hostname = window.location.hostname || 'localhost'
       return url.toString()
     } catch {
       return override
     }
   }
 
-  // dev 서버에는 /telemetry 프록시가 없다 — BE 를 직접 부른다.
-  if (import.meta.env.DEV) {
-    const port = import.meta.env.VITE_BE_PORT
-    return `${wsProtocol}//${host}${port ? `:${port}` : ''}${TELEMETRY_PATH}`
-  }
+  return resolvePathWsUrl(TELEMETRY_PATH)
+}
 
-  return `${wsProtocol}//${window.location.host}${TELEMETRY_PATH}`
+/**
+ * map-sync 완료 통지 WS 주소. 텔레메트리와 같은 BE·같은 포트의 다른 경로다.
+ * VITE_TELEMETRY_WS_URL 오버라이드는 적용하지 않는다 — 그 값은 별도 텔레메트리 릴레이를
+ * 붙일 때 쓰는 디버깅용이고, map-sync 통지는 그 릴레이가 말하지 않는 프로토콜이다.
+ */
+export function resolveMapSyncWsUrl() {
+  return resolvePathWsUrl(MAP_SYNC_PATH)
 }

@@ -67,6 +67,21 @@
     "action": "Download",
     "modalTitle": "Map download",
     "confirm": "Download",
-    "notImplemented": "Download (not implemented)"
+    "description": "The request is sent to the control server. The status updates automatically when the result arrives (up to 5 minutes).",
+    "statusColumn": "Status",
+    "status": {
+      "pending": "Requested",
+      "completed": "Completed",
+      "failed": "Failed",
+      "timeout": "Timed out"
+    },
+    "requested": "Download requested. The status updates when the result arrives.",
+    "requestFailed": "Download request failed: {{message}}",
+    "missingExtId": "This location is not registered on the control server. Synchronize the location information first.",
+    "result": {
+      "completed": "Map download completed",
+      "failed": "Map download failed: {{message}}",
+      "timeout": "The map download did not finish in time."
+    }
   }
 }

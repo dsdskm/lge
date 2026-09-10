@@ -1021,9 +1021,17 @@ export async function loadPosesSparseFromMcapUrl(url, options = {}) {
     const group = selected.slice(g, g + GROUP)
 
     // 소그룹 prefetch(그룹 내부는 병렬) — 한 wave 분량만 가져온다
+    // ⚠️ prefetch 실패로 스캔 전체를 중단하면 안 된다.
+    //    실제로 ERR_CACHE_OPERATION_NOT_SUPPORTED 등으로 한 그룹이 실패하면서 전체 궤적 스캔이 죽고,
+    //    남은 경로가 파일 뒷부분까지 그려지지 않는 문제가 있었다.
+    //    prefetch는 "미리 캐시에 담아두는" 최적화일 뿐이므로, 실패하면 아래 readMessages가 직접 읽으면 된다.
     if (http?.prefetchChunks) {
-      const list = group.map(toPrefetchItem).filter(Boolean)
-      if (list.length) await http.prefetchChunks(list)
+      try {
+        const list = group.map(toPrefetchItem).filter(Boolean)
+        if (list.length) await http.prefetchChunks(list)
+      } catch (e) {
+        console.warn('[Logreplay] 궤적 스캔 prefetch 실패(직접 읽기로 계속):', e?.message || e)
+      }
     }
 
     // 그룹 내 각 chunk에서 pose 1개 추출

@@ -33,6 +33,10 @@ export type TaskflowLanguageRules = {
   nodeTargetOrdinalSuffixPhrases: string[]
   /** 노드 이름 뒤에 붙는 군더더기. 예: "노드" */
   nodeTargetNounPhrases: string[]
+  /** "우측/뒤/다음" 처럼 기준 노드의 다음 순서에 잇는다는 말.
+   * 제어 노드에 붙일 때 이 말이 없으면 자식으로 넣는다.
+   */
+  nodeAttachRightPhrases: string[]
 }
 
 export type TaskflowClassifierRules = {
@@ -53,6 +57,8 @@ export type TaskflowClassifierRules = {
   actionRequestKeywords: string[]
   /** "~해서", "~하고", "그리고" 처럼 한 문장을 여러 동작으로 끊는 말. 복합 문장을 절 단위로 자를 때 쓴다. */
   clauseSeparatorPhrases: string[]
+  /** "지워", "바꿔" 처럼 있는 노드를 고치라는 말. 새로 만드는 결정적 경로(compose)를 태우면 안 된다. */
+  composeBlockPhrases: string[]
   /** 절에서 노드 이름을 뽑을 때 떼어 낼 조사/군더더기. 예: "로", "으로", "좀" */
   clauseNoisePhrases: string[]
 }
@@ -312,6 +318,7 @@ async function readRules(routeKey: string): Promise<TaskflowLanguageRules> {
     nodeTargetOrdinalWords: readMergedNumberMap(ruleMaps, 'nodeTargetOrdinalWords'),
     nodeTargetOrdinalSuffixPhrases: readMergedList(ruleMaps, 'nodeTargetOrdinalSuffixPhrases'),
     nodeTargetNounPhrases: readMergedList(ruleMaps, 'nodeTargetNounPhrases'),
+    nodeAttachRightPhrases: readMergedList(ruleMaps, 'nodeAttachRightPhrases'),
   }
 }
 
@@ -345,6 +352,7 @@ async function readClassifierRules(routeKey: string): Promise<TaskflowClassifier
     concurrentHintKeywords: readMergedList(ruleMaps, 'concurrentHintKeywords'),
     actionRequestKeywords: readMergedList(ruleMaps, 'actionRequestKeywords'),
     clauseSeparatorPhrases: readMergedList(ruleMaps, 'clauseSeparatorPhrases'),
+    composeBlockPhrases: readMergedList(ruleMaps, 'composeBlockPhrases'),
     clauseNoisePhrases: readMergedList(ruleMaps, 'clauseNoisePhrases'),
   }
 }

@@ -30,6 +30,7 @@ const DockerSection = ({
           value={moduleId}
           placeholder={t('selectModule')}
           options={moduleOptions}
+          showSearch={true}
           onChange={handleModuleChange}
           disabled={id !== undefined && id !== null}
         />

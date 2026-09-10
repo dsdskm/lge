@@ -48,6 +48,8 @@ yarn-error.log*
 # Claude
 .claude
 /.claude
+!.claude/commands/
+!.claude/commands/changelog-weekly.md
 /apps/robot/public
 /apps/robot/public
 

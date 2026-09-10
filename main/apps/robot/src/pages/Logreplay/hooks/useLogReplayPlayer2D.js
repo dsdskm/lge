@@ -38,6 +38,12 @@ export default function useLogReplayPlayer2D({
   const dwaGoalsRef = useRef([])
   const playTimeSecRef = useRef(0)
   const [playTimeSec, setPlayTimeSec] = useState(0)
+  // ✅ 사용자 seek 신호(에폭). 진행바 드래그/프레임 스텝/재시작에서만 증가한다(재생 전진 시 불변).
+  //   ⚠️ createCanvasRenderer 호출(아래)보다 먼저 선언해야 한다(TDZ) — index.jsx에서 겪은 것과 같은 함정.
+  //   render2d가 이 값의 변화를 감지해 "정밀 지나온 경로" 누적을 리셋한다(seek만 해도 경로가
+  //   보이던 문제의 근본 수정: 데이터 캐시는 항상 누적되지만, 화면에 보여줄 "지나온 경로"는
+  //   실제로 재생하며 지나간 구간만이어야 한다).
+  const seekEpochRef = useRef(0)
   // ✅ 진행바 fill 시작점(초). seek/step 시 동기적으로 현재 위치로 리셋 → 잔상/누적 방지.
   //    재생 중에는 그대로 두어 fill이 이 지점부터 자라난다.
   const [fillStartSec, setFillStartSec] = useState(0)
@@ -277,7 +283,8 @@ export default function useLogReplayPlayer2D({
       playIndexRef,
       viewRef,
       smoothRef,
-      renderOptionsRef
+      renderOptionsRef,
+      seekEpochRef
     })
     renderFnRef.current = fn
     return fn
@@ -476,20 +483,19 @@ export default function useLogReplayPlayer2D({
   // RAF 재생 루프
   const rafRef = useRef(0)
 
-  // ✅ 사용자 seek(진행바 드래그/프레임 이동/끝→처음 재시작) 발생 카운터.
-  //    데이터 훅이 이 값의 변화를 감지해 pose 누적 캐시를 리셋한다.
-  //    (연속 재생 중에는 증가하지 않으므로 궤적이 계속 누적된다.)
-  const seekEpochRef = useRef(0)
-
   // ✅ UI state 커밋 스로틀(너무 잦은 setState로 depth exceeded 방지)
   const lastUiCommitMsRef = useRef(0)
 
-  // 외부에서 재생 관련 ref/state를 즉시 0으로 초기화하기 위한 헬퍼
+  // 외부에서 재생 관련 ref/state를 즉시 0으로 초기화하기 위한 헬퍼(파일 전환 시 호출됨)
   const resetPlaybackRefs = useCallback(() => {
     try {
       cancelAnimationFrame(rafRef.current)
       rafRef.current = 0
     } catch {}
+
+    // ✅ 파일 전환도 seek 신호로 취급 → render2d의 "지나온 경로(초록)" 누적 버퍼를 비운다.
+    //    (안 그러면 이전 파일에서 쌓인 초록 경로가 새 파일 좌표계에 그대로 남는다)
+    seekEpochRef.current++
 
     // ✅ 추가 (이게 핵심)
     isPlayingRef.current = false

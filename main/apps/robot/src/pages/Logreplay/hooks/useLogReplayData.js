@@ -410,26 +410,49 @@ export default function useLogReplayData({
       if (!Number.isFinite(t)) return
       const ov = overlayRef.current
 
+      // ⚠️ "가장 가까운 것"을 거리 제한 없이 그냥 쓰면 안 된다. costmap/lidar가 파일에서 뭉쳐서(burst)
+      //   발행되는 경우, 현재 위치 근처에 데이터가 전혀 없어도 "그나마 가장 가까운" 후보가 수십~수백초
+      //   떨어진 것일 수 있다 — 그걸 그대로 표시하면 로봇과 무관한 엉뚱한 데이터가 보인다.
+      //   MAX_STALE_SEC보다 멀면 "데이터 없음"으로 취급해 표시를 비운다(틀린 것보다 안 보이는 게 낫다).
+      const MAX_STALE_SEC = 5
+
       // ── costmap: 가장 가까운 프레임의 grid ──
       const cm = ov.costmap
       if (cm.cache.length > 0) {
         const idx = bsearchClosest(cm.cache, t)
-        if (idx !== cm.lastIdx) {
+        const pickedT = cm.cache[idx]?.tSec
+        const tooFar = !Number.isFinite(pickedT) || Math.abs(pickedT - t) > MAX_STALE_SEC
+        if (idx !== cm.lastIdx || tooFar !== cm.lastTooFar) {
           cm.lastIdx = idx
-          const frame = cm.cache[idx]
-          if (frame?.grid) {
-            setLocalCostmapData?.(frame.grid)
-            setLocalCostmapFrames?.(cm.cache)
+          cm.lastTooFar = tooFar
+          if (tooFar) {
+            setLocalCostmapData?.(null)
+            setLocalCostmapFrames?.([])
+          } else {
+            const frame = cm.cache[idx]
+            if (frame?.grid) {
+              setLocalCostmapData?.(frame.grid)
+              setLocalCostmapFrames?.(cm.cache)
+            }
           }
           renderNow?.()
         }
       }
 
-      // ── path: playhead 시점의 최신 plan의 points ──
+      // ── path: playhead 시점의 "그 시각 이전 최신" plan의 points ──
       const pt = ov.path
       if (pt.cache.length > 0) {
         const idx = bsearchLe(pt.cache, t)
-        if (idx >= 0 && idx !== pt.lastIdx) {
+        if (idx < 0) {
+          // ✅ 재생 위치보다 앞선 plan이 캐시에 없다 → 화면에 남아 있는 건 "다른 시각의 계획"이므로 비운다.
+          //    (뒤로 점프한 직후 등에 발생. 예전에는 idx<0이면 아무것도 하지 않아 옛 계획이 그대로 남았고,
+          //     그래서 현재 재생 위치와 전혀 맞지 않는 경로가 표시됐다.)
+          if (pt.lastIdx !== -1) {
+            pt.lastIdx = -1
+            setPlannedPathPoints?.([])
+            renderNow?.()
+          }
+        } else if (idx !== pt.lastIdx) {
           pt.lastIdx = idx
           setPlannedPathPoints?.(pt.cache[idx]?.points ?? [])
           renderNow?.()
@@ -447,13 +470,16 @@ export default function useLogReplayData({
         }
       }
 
-      // ── lidar: 가장 가까운 시각의 스캔 1개만 표시(costmap과 동일한 nearest 정책) ──
+      // ── lidar: 가장 가까운 시각의 스캔 1개만 표시(costmap과 동일한 nearest 정책 + 거리 제한) ──
       const ld = ov.lidar
       if (ld.cache.length > 0) {
         const idx = bsearchClosest(ld.cache, t)
-        if (idx !== ld.lastIdx) {
+        const pickedT = ld.cache[idx]?.tSec
+        const tooFar = !Number.isFinite(pickedT) || Math.abs(pickedT - t) > MAX_STALE_SEC
+        if (idx !== ld.lastIdx || tooFar !== ld.lastTooFar) {
           ld.lastIdx = idx
-          setLidarScans?.([ld.cache[idx]])
+          ld.lastTooFar = tooFar
+          setLidarScans?.(tooFar ? [] : [ld.cache[idx]])
           renderNow?.()
         }
       }
@@ -874,14 +900,11 @@ export default function useLogReplayData({
             const ep = getSeekEpoch()
             if (ep !== lastSeekEpochRef.current) {
               lastSeekEpochRef.current = ep
-              // ✅ hold-last: 표시(pathPoints/costmap/path/goal)는 즉시 비우지 않는다.
-              //    캐시/커버리지만 리셋해 새 위치부터 재누적하고, 새 데이터가 도착하면 apply*가 교체.
-              //    (즉시 blank하면 seek마다 한 프레임 빈 화면 = 깜박임)
               // pose
               poseWindowCacheRef.current = []
               lastPoseApplyIdxRef.current = -1
               poseWindowSeqRef.current++ // 진행 중이던 이전 위치 로드는 seq 불일치로 폐기
-              // overlay (costmap/path/goalPose) — 캐시/커버리지 리셋
+              // overlay (costmap/path/goalPose/lidar) — 캐시/커버리지 리셋
               const ov = overlayRef.current
               for (const k of Object.keys(ov)) {
                 ov[k].cache = []
@@ -889,7 +912,17 @@ export default function useLogReplayData({
                 ov[k].lastIdx = -1
                 ov[k].inflight = false
               }
-              // hold-last: 표시는 유지하고, 리로드 완료 후 데이터 없는 overlay만 정리(깜박임 없음 + ghost 방지)
+              // ⚠️ 예전에는 여기서 표시(costmap/lidar/goal)를 즉시 비우지 않고 유지했다("hold-last",
+              //   화면이 한 프레임 비는 깜박임을 피하려는 의도). 그런데 캐시는 "always accumulate"라
+              //   seek 직후에도 옛(무관한 위치의) 프레임이 그대로 남아있어, 그 옛 내용이 새 데이터가
+              //   도착하기 전까지 화면에 그대로 보였다 — "엉뚱한 위치의 예전 코스트맵/LiDAR가 잠깐
+              //   보였다가 사라짐"으로 체감됨. 빈 화면 한 프레임보다 틀린 내용이 보이는 게 더 혼란스럽다는
+              //   판단으로, seek 시 즉시 비우도록 바꾼다.
+              setLocalCostmapData?.(null)
+              setLocalCostmapFrames?.([])
+              setLidarScans?.([])
+              setDwaGoals?.([])
+              setPlannedPathPoints?.([])
               overlayResyncPendingRef.current = true
             }
           }
@@ -1146,9 +1179,32 @@ export default function useLogReplayData({
       // ✅ 누적 모드: pose "자체 캐시"가 이미 center를 충분히 덮으면 skip
       //   ⚠️ 과거 버그: log window 전용 accEndCoveredRef를 참조해 pose 요청이 막혀
       //      재생 중 로봇 위치가 초기 윈도우(~12s)에 고정되던 문제 → pose 캐시 range 기준으로 수정.
+      //
+      // ⚠️ 새로 발견된 버그: 이 스킵은 "pose가 덮여 있는가"만 본다. 그런데 costmap/lidar/goal/path는
+      //   pose와 별개로 이 fetch에 "편승"해서만 들어온다(onExtraMessage). seek 시 overlay 캐시는
+      //   비우지만 pose 캐시는 (이 드래그/재생에서 이미 지나간 구간이라) 곧바로 다시 채워질 수 있어,
+      //   pose 기준으로는 "이미 커버됨"이라 이 함수가 여기서 return해버리고 overlay는 영원히
+      //   다시 채워지지 않는다 — "드래그 시작점 근처의 옛 코스트맵/LiDAR만 보이고, 실제 놓은 위치의
+      //   새 코스트맵/LiDAR는 안 보이는" 증상의 실제 원인. overlay도 충분히 덮여 있을 때만 스킵한다.
       const pc = poseWindowCacheRef.current
       const maxCachedT = Array.isArray(pc) && pc.length ? Number(pc[pc.length - 1]?.tSec) : NaN
-      if (Number.isFinite(maxCachedT) && centerSec <= maxCachedT - 2) {
+      const poseCovers = Number.isFinite(maxCachedT) && centerSec <= maxCachedT - 2
+
+      // ⚠️ "배열의 마지막 요소"가 아니라 "centerSec에 실제로 가장 가까운 요소"를 봐야 한다.
+      //   cache는 tSec 오름차순으로 정렬되므로, 훨씬 나중 시각(예: 드래그 중 지나간 다른 위치)의
+      //   부스러기가 남아있으면 배열의 "마지막"은 항상 그 나중 시각이 된다 — centerSec과 무관하게.
+      //   nearest 검색(bsearchClosest)으로 실제 근접 여부를 판단해야 정확하다.
+      const isOverlayCovered = (state) => {
+        const arr = state?.cache
+        if (!Array.isArray(arr) || arr.length === 0) return false
+        const idx = bsearchClosest(arr, centerSec)
+        const nearestT = arr[idx]?.tSec
+        return Number.isFinite(nearestT) && Math.abs(centerSec - nearestT) <= HALF
+      }
+      const ovForCheck = overlayRef.current
+      const overlayCovers = isOverlayCovered(ovForCheck.costmap) && isOverlayCovered(ovForCheck.lidar)
+
+      if (poseCovers && overlayCovers) {
         return
       }
 
@@ -1432,7 +1488,11 @@ export default function useLogReplayData({
         await loadPosesSparseFromMcapUrl(url, {
           // numSamples = 표본 개수(= 디코드할 청크 수). 클수록 디테일↑·로드 비용↑.
           // 차트(시계열)와 지도 위 남은 경로(공간 궤적) 양쪽이 이 값을 함께 쓴다.
-          // 40: 기존 차트 전용 20보다 지도 경로 모양이 유지되도록 소폭 상향(단일 노브).
+          //
+          // ⚠️ 이 값이 곧 "남은 경로의 해상도"다. 40이면 10분 파일에서 표본 간격이 약 15초.
+          //    올리면 경로가 실제 궤적에 가까워지지만 디코드할 청크가 비례해 늘어(스캔 완료 지연 +
+          //    동시 range 요청 증가) 스캔 자체가 실패할 확률도 커진다. 40에서 완료 약 16초로 측정됨.
+          //    ※ 해상도를 올리기 전에, 스캔이 끝까지 안정적으로 완료되는지부터 확인할 것.
           // ※ 이 로드는 맵 표시 이후 백그라운드에서 점진적으로(파이프라인+양보) 진행되어 맵/재생을 막지 않는다.
           numSamples: 40,
           onBatch: (posesSoFar) => {

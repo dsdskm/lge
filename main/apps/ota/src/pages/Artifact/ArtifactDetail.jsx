@@ -338,7 +338,10 @@ const ArtifactDetail = () => {
       try {
         const response = await moduleApis.retrieveModules(company.id, null)
         setModuleOptions(
-          response.results.map((module) => ({ value: module.id, name: module.displayName, use: module.use }))
+          response.results
+            .map((module) => ({ value: module.id, name: module.displayName, use: module.use }))
+            // 모듈 수가 많아 이름 오름차순으로 정렬해 노출한다
+            .sort((a, b) => String(a.name).localeCompare(String(b.name)))
         )
         setAllModules(response.results)
       } catch (error) {

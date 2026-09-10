@@ -27,7 +27,7 @@ const Upload = () => {
     try {
       await completeSetup()
       // 헤더 탭/사이드바 구성이 완료 여부로 달라지므로, 갱신된 상태로 다시 그린다.
-      navigate('/map/scan', { replace: true })
+      navigate('/download', { replace: true })
       window.location.reload()
     } catch (error) {
       setErr(`설치 완료 처리 실패: ${error.message}`)

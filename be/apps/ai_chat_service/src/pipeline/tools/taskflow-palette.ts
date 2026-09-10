@@ -1,5 +1,5 @@
 import type { ToolContext } from '../tool.type'
-import { getPropertyTmsStore, type TaskSemantics } from '../../features/taskflow/service/property-tms-store.service'
+import { getPropertyTmsStore, TASK_TYPE, type TaskSemantics } from '../../features/taskflow/service/property-tms-store.service'
 import { taskflowMessage, TASKFLOW_MESSAGE_KEY } from './taskflow-message'
 
 export { TASKFLOW_CANVAS_SCREEN_KEY } from './taskflow-message'
@@ -29,6 +29,10 @@ export type TaskPropertyRef = {
   key: string
   type: string
   description: string
+  /** "3초" -> 3000 처럼 사용자 문장의 숫자를 값으로 바꿀 때 쓰는 단위 배수.
+   * property_tms.compose_hint.properties.<key>.unitPhrases 에서 온다. 코드에는 단위 표현을 두지 않는다.
+   */
+  unitPhrases: Array<{ phrase: string; multiplier: number }>
 }
 
 export type CurrentGraph = {
@@ -84,11 +88,19 @@ export function readTaskPropertySchema(semantics: TaskSemantics | undefined): Ta
   return Object.entries(holder as Record<string, unknown>)
     .map(([key, def]) => {
       const row = def && typeof def === 'object' ? (def as Record<string, unknown>) : {}
+      const units = row.unitPhrases && typeof row.unitPhrases === 'object' && !Array.isArray(row.unitPhrases)
+        ? Object.entries(row.unitPhrases as Record<string, unknown>)
+            .map(([phrase, multiplier]) => ({ phrase: String(phrase).trim(), multiplier: Number(multiplier) }))
+            .filter((unit) => unit.phrase.length > 0 && Number.isFinite(unit.multiplier))
+            .sort((a, b) => b.phrase.length - a.phrase.length)
+        : []
+
       return {
         taskName: semantics?.taskName ?? '',
         key: String(key).trim(),
         type: String(row.type ?? '').trim(),
         description: String(row.description ?? '').trim(),
+        unitPhrases: units,
       }
     })
     .filter((row) => row.key.length > 0)
@@ -146,6 +158,48 @@ export function resolveProperties(
   }
 
   return { properties, unknownKeys }
+}
+
+function escapeForRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** 사용자 문장에서 "3초" / "3회" 처럼 단위가 붙은 숫자를 찾아, LLM 이 빠뜨린 속성 값을 채운다.
+ * 단위 표현과 배수는 property_tms.compose_hint.properties.<key>.unitPhrases 가 정한다.
+ * 후보가 여러 개면(값이 서로 다르면) 무엇을 뜻하는지 알 수 없으므로 채우지 않는다.
+ */
+export function fillPropertiesFromMessage(
+  semantics: TaskSemantics | undefined,
+  properties: Record<string, unknown>,
+  message: string,
+): { properties: Record<string, unknown>; filledKeys: string[] } {
+  const text = String(message ?? '')
+  const rows = readTaskPropertySchema(semantics)
+  if (!text.trim() || rows.length === 0) return { properties, filledKeys: [] }
+
+  const next = { ...properties }
+  const filledKeys: string[] = []
+
+  for (const row of rows) {
+    if (next[row.key] !== undefined || row.unitPhrases.length === 0) continue
+
+    // 긴 표현이 먼저 오게 해서 "500밀리초" 가 "초" 로 잡히지 않게 한다(정규식 대안은 앞에서부터 맞춘다).
+    const alternation = row.unitPhrases.map((unit) => escapeForRegExp(unit.phrase)).join('|')
+    const pattern = new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(${alternation})`, 'gi')
+
+    const values = new Set<number>()
+    for (const match of text.matchAll(pattern)) {
+      const unit = row.unitPhrases.find((candidate) => candidate.phrase.toLowerCase() === match[2].toLowerCase())
+      if (!unit) continue
+      values.add(Number(match[1]) * unit.multiplier)
+    }
+
+    if (values.size !== 1) continue
+    next[row.key] = coercePropertyValue([...values][0], row.type)
+    filledKeys.push(row.key)
+  }
+
+  return { properties: next, filledKeys }
 }
 
 export function readCurrentGraph(ctx: ToolContext): CurrentGraph {
@@ -225,16 +279,175 @@ function stripNameSuffix(value: string, suffixes: string[]): string {
  * - 괄호 코드를 떼어 낸 형태: "도슨트 대기(D1)" 를 "도슨트 대기 장소" 라고 부르는 경우
  * - 호칭 접미어를 떼어 낸 형태: 이름이 "도슨트 환영 장소" 인데 "도슨트 환영으로 이동" 이라고 부르는 경우
  */
-export function buildContentMatchKeys(contentName: string, suffixes: string[] = []): string[] {
+/** 접미어를 떼어 만든 키를 그대로 믿으면 안 되는 최소 길이.
+ * "이동 음악" 에서 "음악" 을 떼면 "이동" 이 되어 아무 문장의 '이동' 에나 걸린다.
+ */
+const STRIPPED_KEY_SAFE_LENGTH = 4
+
+export type ContentMatchKey = {
+  key: string
+  /** 호칭 접미어를 떼어 만든 키인지. 짧으면 흔한 낱말과 겹쳐 오탐이 난다. */
+  stripped: boolean
+}
+
+/** 콘텐츠 이름의 비교 후보. 이름 전체 / 괄호 제거 / 접미어 제거 형태를 모두 만든다. */
+export function buildContentMatchEntries(contentName: string, suffixes: string[] = []): ContentMatchKey[] {
   const raw = String(contentName ?? '').trim()
   const withoutBrackets = raw.replace(/[([{<][^)\]}>]*[)\]}>]/g, ' ').trim()
 
-  const variants = [raw, withoutBrackets, stripNameSuffix(raw, suffixes), stripNameSuffix(withoutBrackets, suffixes)]
+  // 괄호/접미어를 떼어 만든 형태는 이름 그대로가 아니다.
+  // "이동(g)" 의 "이동" 처럼 떼고 나면 흔한 낱말이 되는 경우가 있어 따로 표시해 둔다.
+  const variants: ContentMatchKey[] = [
+    { key: toMatchKey(raw), stripped: false },
+    { key: toMatchKey(withoutBrackets), stripped: toMatchKey(withoutBrackets) !== toMatchKey(raw) },
+    { key: toMatchKey(stripNameSuffix(raw, suffixes)), stripped: true },
+    { key: toMatchKey(stripNameSuffix(withoutBrackets, suffixes)), stripped: true },
+  ]
 
-  return Array.from(new Set(variants.map((value) => toMatchKey(value)))).filter((key) => key.length >= 2)
+  const byKey = new Map<string, ContentMatchKey>()
+  for (const entry of variants) {
+    if (entry.key.length < 2) continue
+    const previous = byKey.get(entry.key)
+    // 같은 키가 양쪽에서 나오면 이름 그대로인 쪽으로 본다.
+    if (!previous || (previous.stripped && !entry.stripped)) byKey.set(entry.key, entry)
+  }
+
+  return [...byKey.values()]
+}
+
+export function buildContentMatchKeys(contentName: string, suffixes: string[] = []): string[] {
+  return buildContentMatchEntries(contentName, suffixes).map((entry) => entry.key)
+}
+
+/** 그 Task 를 부르는 말(trigger_phrases + 호칭 접미어)이 요청 안에 있는지.
+ * 이름만으로는 동작인지 대상인지 가릴 수 없는 경우("이동")를 가리는 데 쓴다.
+ */
+export function requestCallsTask(requestText: string, taskName: string): boolean {
+  const requestKey = toMatchKey(requestText)
+  if (!requestKey) return false
+
+  const semantics = getPropertyTmsStore()?.get(taskName)
+  const words = [...(semantics?.triggerPhrases ?? []), ...readNameSuffixPhrases(taskName)]
+
+  return words.some((word) => {
+    const wordKey = toMatchKey(word)
+    return wordKey.length >= 2 && requestKey.includes(wordKey)
+  })
+}
+
+/** 콘텐츠 이름이 다른 Task 를 부르는 말과 같은지.
+ * PlaySound 콘텐츠 "이동" 처럼 이름 자체가 다른 Task 의 동작 표현(MoveTo 의 "이동")인 경우다.
+ */
+function nameLooksLikeOtherTaskWord(contentName: string, taskName: string): boolean {
+  // 괄호/접미어를 뗀 형태까지 본다. "이동(g)" 는 떼면 MoveTo 의 "이동" 과 같아진다.
+  const nameKeys = buildContentMatchEntries(contentName, readNameSuffixPhrases(taskName)).map((entry) => entry.key)
+  if (nameKeys.length === 0) return false
+
+  const ownKey = toMatchKey(taskName)
+  return (getPropertyTmsStore()?.list() ?? []).some((task) => {
+    if (toMatchKey(task.taskName) === ownKey) return false
+    const words = [task.taskName, ...(task.triggerPhrases ?? []), ...readNameSuffixPhrases(task.taskName)]
+    return words.some((word) => nameKeys.includes(toMatchKey(word)))
+  })
+}
+
+/** 이 비교 키를 요청에 써도 되는지.
+ *  - 접미어를 떼어 만든 짧은 키("이동 음악" -> "이동")
+ *  - 이름 자체가 다른 Task 의 동작 표현인 콘텐츠(PlaySound "이동")
+ * 둘 다 흔한 낱말에 걸려 엉뚱한 노드를 만든다. 요청이 그 Task 를 부르고 있을 때만 인정한다.
+ */
+export function canUseStrippedKey(
+  entry: ContentMatchKey,
+  requestText: string,
+  taskName: string,
+  contentName = '',
+): boolean {
+  if (nameLooksLikeOtherTaskWord(contentName, taskName) && !requestCallsTask(requestText, taskName)) return false
+  if (!entry.stripped) return true
+  if (entry.key.length >= STRIPPED_KEY_SAFE_LENGTH) return true
+
+  return requestCallsTask(requestText, taskName)
 }
 
 /** "타임아웃" 처럼 사람이 부르는 이름을 Task 이름으로 바꾼다. 별칭은 property_tms.trigger_phrases 에 있다. */
+/** 오타 허용 거리(Damerau-Levenshtein). "puase" 와 "pause" 는 1 이다. */
+export function nameDistance(a: string, b: string): number {
+  const left = toMatchKey(a)
+  const right = toMatchKey(b)
+  if (!left || !right) return Number.MAX_SAFE_INTEGER
+  if (left === right) return 0
+
+  const rows = left.length + 1
+  const cols = right.length + 1
+  const table: number[][] = Array.from({ length: rows }, (_, row) =>
+    Array.from({ length: cols }, (_, col) => (row === 0 ? col : col === 0 ? row : 0)),
+  )
+
+  for (let row = 1; row < rows; row += 1) {
+    for (let col = 1; col < cols; col += 1) {
+      const cost = left[row - 1] === right[col - 1] ? 0 : 1
+      table[row][col] = Math.min(table[row - 1][col] + 1, table[row][col - 1] + 1, table[row - 1][col - 1] + cost)
+
+      // 자리 바뀜(pause -> puase)은 한 번의 실수로 본다.
+      if (row > 1 && col > 1 && left[row - 1] === right[col - 2] && left[row - 2] === right[col - 1]) {
+        table[row][col] = Math.min(table[row][col], table[row - 2][col - 2] + 1)
+      }
+    }
+  }
+
+  return table[rows - 1][cols - 1]
+}
+
+/** 이름 길이에 비례한 오타 허용치. 짧은 이름에서 엉뚱한 노드가 잡히지 않게 좁게 잡는다. */
+function typoBudget(name: string): number {
+  const length = toMatchKey(name).length
+  if (length < 4) return 0
+  if (length < 8) return 1
+  return 2
+}
+
+/** 오타를 감안해 가장 가까운 Task 이름. 후보가 동점이면 매칭하지 않는다. */
+export function findClosestTaskName(name: string): string | undefined {
+  const budget = typoBudget(name)
+  if (budget === 0) return undefined
+
+  const scored = (getPropertyTmsStore()?.list() ?? [])
+    .flatMap((task) => [task.taskName, ...(task.triggerPhrases ?? [])].map((candidate) => ({ task: task.taskName, candidate })))
+    .map((row) => ({ ...row, distance: nameDistance(name, row.candidate) }))
+    .filter((row) => row.distance <= budget)
+    .sort((a, b) => a.distance - b.distance)
+
+  const best = scored[0]
+  if (!best) return undefined
+  if (scored.some((row) => row.distance === best.distance && row.task !== best.task)) return undefined
+
+  return best.task
+}
+
+/** 오타를 감안해 가장 가까운 콘텐츠. taskName 을 알면 그 Task 안에서만 본다. */
+export function findClosestContent(
+  name: string,
+  taskName: string,
+  contents: TaskContentRef[],
+): TaskContentRef | undefined {
+  const budget = typoBudget(name)
+  if (budget === 0) return undefined
+
+  const taskKey = toMatchKey(taskName)
+  const pool = taskKey ? contents.filter((row) => toMatchKey(row.taskName) === taskKey) : contents
+
+  const scored = pool
+    .map((row) => ({ row, distance: nameDistance(name, row.contentName) }))
+    .filter((row) => row.distance <= budget)
+    .sort((a, b) => a.distance - b.distance)
+
+  const best = scored[0]
+  if (!best) return undefined
+  if (scored.some((row) => row.distance === best.distance && row.row.contentId !== best.row.contentId)) return undefined
+
+  return best.row
+}
+
 export function resolveTaskAlias(name: string): string {
   const key = toMatchKey(name)
   if (!key) return String(name ?? '').trim()
@@ -249,6 +462,8 @@ export function resolveTaskAlias(name: string): string {
     .list()
     .find((task) => task.triggerPhrases.some((phrase) => toMatchKey(phrase) === key))
 
+  // 오타 보정은 여기서 하지 않는다. 콘텐츠 이름("Love")이 Task 표현("move")과 한 글자 차이일 수 있어
+  // 팔레트를 먼저 본 뒤에 findClosestTaskName 을 쓰는 쪽이 안전하다.
   return matched?.taskName ?? String(name ?? '').trim()
 }
 
@@ -285,15 +500,13 @@ export function findContentRef(
   let bestScore = Number.MAX_SAFE_INTEGER
   let bestGap = Number.MAX_SAFE_INTEGER
 
-  // 요청어에서도 호칭 접미어를 떼어 본다. "도슨트 대기 장소" 로 불러도 이름이 "도슨트 대기(D1)" 인 경우가 있다.
-  const requestKeys = Array.from(
-    new Set([
-      key,
-      ...(taskName ? buildContentMatchKeys(contentName, readNameSuffixPhrases(taskName)) : []),
-    ]),
-  ).filter(Boolean)
-
   for (const row of pool) {
+    // 요청어에서도 호칭 접미어를 떼어 본다. "도슨트 대기 장소" 로 불러도 이름이 "도슨트 대기(D1)" 인 경우가 있다.
+    // Task 를 모르고 부른 경우("인트로 음성")에는 비교 대상 행의 Task 접미어를 쓴다.
+    const requestKeys = Array.from(
+      new Set([key, ...buildContentMatchKeys(contentName, readNameSuffixPhrases(taskName || row.taskName))]),
+    ).filter(Boolean)
+
     const fullKey = toMatchKey(row.contentName)
     // "1" 처럼 한 글자 이름은 아무 요청에나 걸려 엉뚱한 노드가 붙는다. 정확히 같을 때만 인정한다.
     if (fullKey.length < 2 && fullKey !== key) continue
@@ -423,6 +636,249 @@ export function formatNodeTarget(node: GraphNodeRef): string {
   return node.ordinal ? `${node.label} #${node.ordinal}` : node.label
 }
 
+/** "인트로 tts" / "인트로 음성" 처럼 Task 를 부르는 말이 섞인 이름을 실제 콘텐츠로 맞춘다.
+ *
+ * 먼저 이름 그대로 찾고, 못 찾으면 Task 이름·trigger_phrases·호칭 접미어(property_tms)를 떼어 낸 뒤
+ * 그 Task 안에서 다시 찾는다. 긴 표현부터 떼어 보므로 "인트로 음성" 은 Tts 의 "1.인트로" 로 간다.
+ * 떼어 낼 표현은 전부 DB 에서 온다.
+ */
+export function resolveContentByLooseName(
+  name: string,
+  contents: TaskContentRef[],
+): TaskContentRef | undefined {
+  const raw = String(name ?? '').trim()
+  if (!raw || contents.length === 0) return undefined
+
+  const direct = findContentRef(raw, '', contents)
+  if (direct) return direct
+
+  const nameKey = toMatchKey(raw)
+  const candidates = (getPropertyTmsStore()?.list() ?? []).flatMap((task) =>
+    [task.taskName, ...(task.triggerPhrases ?? []), ...readNameSuffixPhrases(task.taskName)]
+      .map((value) => String(value ?? '').trim())
+      .filter((value) => value.length >= 2 && nameKey.includes(toMatchKey(value)))
+      .map((phrase) => ({ taskName: task.taskName, phrase })),
+  )
+
+  for (const candidate of candidates.sort((a, b) => b.phrase.length - a.phrase.length)) {
+    const stripped = raw
+      .replace(new RegExp(candidate.phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!stripped || stripped === raw) continue
+
+    const matched =
+      findContentRef(stripped, candidate.taskName, contents) ??
+      findClosestContent(stripped, candidate.taskName, contents)
+    if (matched) return matched
+  }
+
+  return findClosestContent(raw, '', contents) ?? matchContentInText(raw, '', contents)
+}
+
+/** 문장에서 콘텐츠 이름 후보를 뽑는다.
+ *
+ * 군더더기(rule 의 clauseNoisePhrases 등)를 떼고 남은 말을 토큰으로 자른 뒤,
+ * 이어지는 토큰 묶음(n-gram)을 긴 것부터 후보로 내놓는다. "대기 장소로 좀 빨리 가줘" 처럼
+ * 이름 앞뒤에 말이 더 붙어도 이름만 잘라 볼 수 있다.
+ * 어떤 말을 떼는지는 전부 DB 에서 오고, 자르는 기준(공백·문장 기호)만 코드에 둔다.
+ */
+export function extractNameCandidates(text: string, noisePhrases: string[] = []): string[] {
+  const noise = [...noisePhrases]
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)
+
+  // 군더더기는 토큰 끝(조사 자리)이나 토큰 전체일 때만 뗀다.
+  // 토큰 안쪽까지 지우면 이름이 깨진다("인트로" 에서 "로" 를 떼면 "인트" 가 된다).
+  const trimNoise = (token: string): string => {
+    let current = token
+    let changed = true
+    while (changed) {
+      changed = false
+      for (const phrase of noise) {
+        if (current.length > phrase.length && current.toLowerCase().endsWith(phrase.toLowerCase())) {
+          current = current.slice(0, current.length - phrase.length)
+          changed = true
+        }
+      }
+    }
+    return current
+  }
+
+  const tokens = String(text ?? '')
+    .split(/[\s,;:!?~()[\]{}<>"'`]+/u)
+    .map((token) => token.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '').trim())
+    .filter(Boolean)
+    .filter((token) => !noise.some((phrase) => phrase.toLowerCase() === token.toLowerCase()))
+  if (tokens.length === 0) return []
+
+  // 조사를 뗀 형태와 떼지 않은 형태를 모두 후보로 낸다.
+  // 이름이 조사처럼 끝나는 경우("인트로")가 있어 어느 한쪽만 쓰면 놓친다.
+  const variants = [tokens, tokens.map(trimNoise).filter(Boolean)]
+  const candidates: string[] = []
+
+  for (const list of variants) {
+    const maxWindow = Math.min(list.length, 6)
+    for (let size = maxWindow; size >= 1; size -= 1) {
+      for (let start = 0; start + size <= list.length; start += 1) {
+        candidates.push(list.slice(start, start + size).join(' '))
+      }
+    }
+  }
+
+  return Array.from(new Set(candidates))
+    .filter((candidate) => toMatchKey(candidate).length >= 2)
+    .sort((a, b) => toMatchKey(b).length - toMatchKey(a).length)
+}
+
+/** 문장에서 뽑은 후보들로 콘텐츠를 찾는다. 긴 후보(더 구체적인 이름)부터 보고, 오타까지 감안한다.
+ * taskName 을 알면 그 Task 안에서만 본다.
+ */
+export function matchContentInText(
+  text: string,
+  taskName: string,
+  contents: TaskContentRef[],
+  noisePhrases: string[] = [],
+): TaskContentRef | undefined {
+  if (contents.length === 0) return undefined
+
+  for (const candidate of extractNameCandidates(text, noisePhrases)) {
+    const matched =
+      matchContentStrict(candidate, taskName, contents, text) ?? findClosestContent(candidate, taskName, contents)
+    if (matched) return matched
+  }
+
+  return undefined
+}
+
+/** 그 Task 를 부르는 말(이름·trigger·호칭 접미어)인지. 이름 후보에서 걸러내는 데 쓴다. */
+function isTaskWordKey(key: string, taskName: string): boolean {
+  const semantics = getPropertyTmsStore()?.get(taskName)
+  const words = [taskName, semantics?.taskName ?? '', ...(semantics?.triggerPhrases ?? []), ...readNameSuffixPhrases(taskName)]
+
+  return words.some((word) => toMatchKey(word) === key)
+}
+
+/** 후보 문자열이 콘텐츠 이름과 정말 겹치는지만 본다.
+ * findContentRef 는 토큰 하나만 겹쳐도 점수를 주는데("없는 장소" vs "도슨트 환영 장소"),
+ * 문장에서 잘라 낸 후보에는 그 정도로 느슨하면 엉뚱한 노드가 붙는다.
+ */
+function matchContentStrict(
+  candidate: string,
+  taskName: string,
+  contents: TaskContentRef[],
+  requestText = '',
+): TaskContentRef | undefined {
+  const taskKey = toMatchKey(taskName)
+  const pool = taskKey ? contents.filter((row) => toMatchKey(row.taskName) === taskKey) : contents
+
+  let best: TaskContentRef | undefined
+  let bestScore = Number.MAX_SAFE_INTEGER
+  let bestLength = 0
+
+  for (const row of pool) {
+    const suffixes = readNameSuffixPhrases(row.taskName)
+    const contentKeys = buildContentMatchEntries(row.contentName, suffixes)
+      .filter((entry) => canUseStrippedKey(entry, requestText || candidate, row.taskName, row.contentName))
+      .map((entry) => entry.key)
+    const requestKeys = buildContentMatchKeys(candidate, readNameSuffixPhrases(taskName || row.taskName)).filter(
+      // 호칭 접미어나 Task 를 부르는 말 자체는 이름이 아니다("장소" 하나로 아무 장소나 잡히면 안 된다).
+      (requestKey) => !isTaskWordKey(requestKey, row.taskName),
+    )
+
+    for (const contentKey of contentKeys) {
+      for (const requestKey of requestKeys) {
+        const score = scoreContentMatch(requestKey, contentKey)
+        if (score === null) continue
+        // 이름의 일부만 겹칠 때는 절반 이상 겹쳐야 인정한다. "대기" -> "대기 장소" 는 되고 "장소" -> "도슨트 환영 장소" 는 안 된다.
+        if (score >= 2 && requestKey.length * 2 < contentKey.length) continue
+        if (score > bestScore) continue
+        if (score === bestScore && contentKey.length <= bestLength) continue
+
+        best = row
+        bestScore = score
+        bestLength = contentKey.length
+      }
+    }
+  }
+
+  return best
+}
+
+/** 제어 노드가 품는 동작의 범위. property_tms.compose_hint.childScope 에서 온다.
+ *  - all   : 문장에 나열된 동작 전부를 자식으로 묶는다(동시 실행/조건 분기).
+ *  - clause: 자기가 나온 절의 동작만 자식으로 두고, 뒤 절은 그 다음 순서로 잇는다(반복/지연/제한시간).
+ * 값이 없으면 all 로 본다(기존 동작 유지).
+ */
+export function readControlChildScope(taskName: string): 'all' | 'clause' {
+  const raw = getPropertyTmsStore()?.get(String(taskName ?? '').trim())?.composeHint?.childScope
+  return String(raw ?? '').trim() === 'clause' ? 'clause' : 'all'
+}
+
+/** 자식을 동시에 실행하는 제어 Task 인지. compose_hint.intent(또는 intents)가 concurrent 인 Task 다. */
+export function isConcurrentControlTask(taskName: string): boolean {
+  const semantics = getPropertyTmsStore()?.get(String(taskName ?? '').trim())
+  if (!semantics || semantics.taskType !== TASK_TYPE.control) return false
+
+  const single = String(semantics.composeHint?.intent ?? '').trim()
+  const many = Array.isArray(semantics.composeHint?.intents)
+    ? (semantics.composeHint?.intents as unknown[]).map((value) => String(value ?? '').trim())
+    : []
+
+  return [single, ...many].includes('concurrent')
+}
+
+/** 동시 실행 제어 노드의 자식 중 이미 쓰인 Task 이름. 같은 Task 를 또 넣지 않기 위해 본다.
+ * (얼굴 두 개, 발화 두 개를 동시에 수행할 수는 없다.)
+ */
+export function readConcurrentChildTaskNames(graph: CurrentGraph, anchorNodeId: string): string[] {
+  return graph.edges
+    .filter((edge) => edge.branch && String(edge.source) === String(anchorNodeId))
+    .map((edge) => graph.nodes.find((node) => node.id === edge.target)?.taskName ?? '')
+    .filter(Boolean)
+}
+
+/** Start 에서 시작하는 실행 흐름의 마지막 노드.
+ *
+ * 위치를 말하지 않은 "~ 만들어줘 / 추가해줘" 요청을 이 노드 우측에 잇는 데 쓴다.
+ * 자식(branch) 엣지는 따라가지 않으므로 제어 노드가 자식을 가지고 있으면 흐름의 끝은 그 제어 노드다.
+ * 모든 노드는 입력 엣지가 하나뿐이라, 흐름 끝에 잇는 것이 기존 구성을 건드리지 않는 유일한 방법이다.
+ */
+export function findFlowTailNode(graph: CurrentGraph): GraphNodeRef | undefined {
+  if (graph.nodes.length === 0) return undefined
+
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]))
+  const mainEdges = graph.edges.filter((edge) => !edge.branch)
+  const nextBySource = new Map<string, string>()
+  for (const edge of mainEdges) {
+    if (!nextBySource.has(edge.source)) nextBySource.set(edge.source, edge.target)
+  }
+
+  const hasMainIncoming = new Set(mainEdges.map((edge) => edge.target))
+  // Start(ROOT) 가 있으면 거기서 출발한다. 없으면 흐름 상 앞에 아무것도 없는 노드에서 출발한다.
+  const startId =
+    graph.nodes.find((node) => node.taskType === TASK_TYPE.root)?.id ??
+    graph.nodes.find((node) => !hasMainIncoming.has(node.id))?.id
+
+  if (!startId) return undefined
+
+  let currentId = startId
+  let tail: GraphNodeRef | undefined = byId.get(startId)?.taskType === TASK_TYPE.root ? undefined : byId.get(startId)
+  const seen = new Set<string>([startId])
+
+  while (true) {
+    const nextId = nextBySource.get(currentId)
+    if (!nextId || seen.has(nextId)) break
+
+    seen.add(nextId)
+    currentId = nextId
+    tail = byId.get(nextId) ?? tail
+  }
+
+  return tail
+}
+
 /** 이름이 같은 노드를 화면 번호 순서대로 모두 돌려준다. 번호를 지정하면 그 한 개만 남는다. */
 export function findGraphNodes(name: string, graph: CurrentGraph, rules?: NodeTargetRules): GraphNodeRef[] {
   const { name: baseName, ordinal } = parseNodeTarget(name, rules)
@@ -492,11 +948,11 @@ export function describeGraphNodeForUser(node: GraphNodeRef): string {
   return formatNodeLabel(node.taskName, node.contentName) || node.label
 }
 
-/** 노드를 사람이 읽는 한 줄로 옮긴다. 표기 순서는 prompt 의 node.label 템플릿이 정한다. */
+/** 노드를 사람이 읽는 한 줄로 옮긴다. 표기(괄호)뿐이라 문구가 아니므로 코드에 둔다. */
 export function formatNodeLabel(taskName?: string, contentName?: string): string {
   if (!taskName || !contentName) return ''
 
-  return taskflowMessage(TASKFLOW_MESSAGE_KEY.nodeLabel, { taskName, contentName })
+  return `${contentName}(${taskName})`
 }
 
 /** LLM 이 읽을 현재 캔버스 구조. 실행 흐름과 자식 분기를 구분해 적는다. */

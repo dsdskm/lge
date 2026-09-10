@@ -11,7 +11,7 @@ export type ConnectDenyReason =
   | 'action-single-out'
   | 'control-single-right-out'
   | 'control-single-left-in'
-  | 'parallel-duplicate-content-type'
+  | 'parallel-duplicate-task'
   | 'ifthenelse-left-branch-limit'
 
 function isSameEdgeCandidate(edge: RFEdge, c: Connection): boolean {
@@ -40,11 +40,6 @@ function normalizeTaskName(value?: string | null): string {
     .replace(/\s+/g, ' ')
 }
 
-export function getNodeContentTypeId(node: RFNode | undefined | null): number | undefined {
-  const value = Number(node?.data?.contentTypeId ?? 0)
-  return Number.isFinite(value) && value > 0 ? value : undefined
-}
-
 export function getConnectDenyReason(
   nodes: RFNode[],
   edges: RFEdge[],
@@ -61,7 +56,6 @@ export function getConnectDenyReason(
   const sourceTaskType = getNodeTaskType(sourceNode)
   const targetTaskType = getNodeTaskType(targetNode)
   const sourceTaskName = getNodeTaskName(sourceNode)
-  const targetTaskName = getNodeTaskName(targetNode)
 
   if (c.targetHandle !== 'left') {
     console.warn(`[CONNECT] 노드는 입력(left) 핸들로만 진입할 수 있습니다. targetHandle=${String(c.targetHandle)}`)
@@ -145,29 +139,27 @@ export function getConnectDenyReason(
     }
   }
 
+  // Parallel 은 자식을 동시에 실행한다. 같은 Task 를 둘 이상 두면(얼굴 2개, 발화 2개) 동시에 수행할 수 없다.
   const parallelNodeId = normalizeTaskName(sourceTaskName) === 'parallel' ? String(c.source) : null
+  if (parallelNodeId && c.sourceHandle === 'left' && targetTaskType === 'ACTION') {
+    const targetKey = normalizeTaskName(getNodeTaskName(targetNode))
+    const existingChildren = edges.filter(
+      (edge) =>
+        !hasExistingSameConnection(edge) &&
+        String(edge.source) === parallelNodeId &&
+        String(edge.sourceHandle) === 'left'
+    )
 
-  if (parallelNodeId && c.sourceHandle === 'left') {
-    const targetContentTypeId = getNodeContentTypeId(targetNode)
-    if (targetContentTypeId !== undefined) {
-      const existingChildren = edges.filter(
-        (edge) =>
-          !hasExistingSameConnection(edge) &&
-          String(edge.source) === parallelNodeId &&
-          String(edge.sourceHandle) === 'left'
+    const duplicateSameTask = existingChildren.some((edge) => {
+      const childNode = nodes.find((n) => String(n.id) === String(edge.target))
+      return getNodeTaskType(childNode) === 'ACTION' && normalizeTaskName(getNodeTaskName(childNode)) === targetKey
+    })
+
+    if (duplicateSameTask) {
+      console.warn(
+        `[CONNECT] Parallel 노드는 같은 Task 의 자식을 2개 이상 둘 수 없습니다. parallel=${parallelNodeId} task=${String(getNodeTaskName(targetNode))}`
       )
-
-      const duplicateSameType = existingChildren.some((edge) => {
-        const childNode = nodes.find((n) => String(n.id) === String(edge.target))
-        return getNodeTaskType(childNode) === 'ACTION' && getNodeContentTypeId(childNode) === targetContentTypeId
-      })
-
-      if (duplicateSameType) {
-        console.warn(
-          `[CONNECT] Parallel 노드는 동일한 컨텐츠 타입의 ACTION 자식을 2개 이상 둘 수 없습니다. parallel=${parallelNodeId}`
-        )
-        return 'parallel-duplicate-content-type'
-      }
+      return 'parallel-duplicate-task'
     }
   }
 

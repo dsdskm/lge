@@ -1,16 +1,16 @@
 import { resolveActionTools } from './screen-registry'
-import { TASKFLOW_MESSAGE_KEY } from './tools/taskflow-message'
+import { TASKFLOW_TOOL_KEY } from './tools/taskflow-message'
 
 const factories = {
-  [TASKFLOW_MESSAGE_KEY.toolCompose]: () => ({
+  [TASKFLOW_TOOL_KEY.compose]: () => ({
     declaration: { name: 'compose_linear_taskflow', description: 'c' },
     execute: async () => ({}),
   }),
-  [TASKFLOW_MESSAGE_KEY.toolEdit]: () => ({
+  [TASKFLOW_TOOL_KEY.edit]: () => ({
     declaration: { name: 'edit_taskflow', description: 'e' },
     execute: async () => ({}),
   }),
-  [TASKFLOW_MESSAGE_KEY.toolReadGraph]: () => ({
+  [TASKFLOW_TOOL_KEY.readGraph]: () => ({
     declaration: { name: 'read_taskflow_graph', description: 'r' },
     execute: async () => ({}),
   }),
@@ -18,18 +18,18 @@ const factories = {
 
 describe('resolveActionTools', () => {
   it('registers only the tools registered for the screen', () => {
-    const { tools } = resolveActionTools([TASKFLOW_MESSAGE_KEY.toolCompose], factories)
+    const { tools } = resolveActionTools([TASKFLOW_TOOL_KEY.compose], factories)
     expect(tools.map((tool) => tool.declaration.name)).toEqual(['compose_linear_taskflow'])
   })
 
   it('registers edit and read independently so one missing row does not drop the other', () => {
-    const { tools } = resolveActionTools([TASKFLOW_MESSAGE_KEY.toolEdit], factories)
+    const { tools } = resolveActionTools([TASKFLOW_TOOL_KEY.edit], factories)
     expect(tools.map((tool) => tool.declaration.name)).toEqual(['edit_taskflow'])
   })
 
   it('keeps the order registered in the table', () => {
     const { tools } = resolveActionTools(
-      [TASKFLOW_MESSAGE_KEY.toolReadGraph, TASKFLOW_MESSAGE_KEY.toolCompose, TASKFLOW_MESSAGE_KEY.toolEdit],
+      [TASKFLOW_TOOL_KEY.readGraph, TASKFLOW_TOOL_KEY.compose, TASKFLOW_TOOL_KEY.edit],
       factories,
     )
     expect(tools.map((tool) => tool.declaration.name)).toEqual([
@@ -51,10 +51,10 @@ describe('resolveActionTools', () => {
   })
 
   it('reports tools whose factory refused to build', () => {
-    const refusing = { [TASKFLOW_MESSAGE_KEY.toolCompose]: () => null } as any
-    const { tools, skipped } = resolveActionTools([TASKFLOW_MESSAGE_KEY.toolCompose], refusing)
+    const refusing = { [TASKFLOW_TOOL_KEY.compose]: () => null } as any
+    const { tools, skipped } = resolveActionTools([TASKFLOW_TOOL_KEY.compose], refusing)
 
     expect(tools).toEqual([])
-    expect(skipped).toEqual([TASKFLOW_MESSAGE_KEY.toolCompose])
+    expect(skipped).toEqual([TASKFLOW_TOOL_KEY.compose])
   })
 })

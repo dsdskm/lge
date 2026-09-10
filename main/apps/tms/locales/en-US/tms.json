@@ -52,7 +52,7 @@
         "denyActionSingleOut": "ACTION nodes can only have one output to the right.",
         "denyControlSingleRightOut": "CONTROL nodes can only have one output to the right.",
         "denyControlSingleLeftIn": "CONTROL nodes can only have one input from the left.",
-        "denyParallelDuplicateContentType": "Parallel nodes cannot have more than one ACTION child with the same content type.",
+        "denyParallelDuplicateTask": "A Parallel node cannot have more than one child of the same Task.",
         "denyDefault": "This connection is not allowed."
       }
     },

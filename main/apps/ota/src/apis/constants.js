@@ -8,6 +8,14 @@ export const ENDPOINTS = {
     ABORT: `${API_CONFIG.PREFIX_OTA}/campaign/abort`,
     ROLLBACK: `${API_CONFIG.PREFIX_OTA}/campaign/rollback`
   },
+  // 캠페인 그룹(단계적 배포) : 그룹 1개 = phase(캠페인) N개
+  CAMPAIGN_GROUP: {
+    BASE: `${API_CONFIG.PREFIX_OTA}/campaign-group`,
+    LIST: `${API_CONFIG.PREFIX_OTA}/campaign-group/list`,
+    REQUEST: `${API_CONFIG.PREFIX_OTA}/campaign-group/request`,
+    PROCEED: `${API_CONFIG.PREFIX_OTA}/campaign-group/proceed`,
+    CANCEL: `${API_CONFIG.PREFIX_OTA}/campaign-group/cancel`
+  },
   ACTION: `${API_CONFIG.PREFIX_OTA}/action`,
   ARTIFACT: `${API_CONFIG.PREFIX_OTA}/artifact`,
   TARGETGROUP: `${API_CONFIG.PREFIX_OTA}/target-group`,

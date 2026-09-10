@@ -67,6 +67,21 @@
     "action": "ダウンロード",
     "modalTitle": "マップダウンロード",
     "confirm": "ダウンロード",
-    "notImplemented": "ダウンロード（未実装）"
+    "description": "管制にリクエストを送信します。結果が届くと状態が自動で更新されます（最大5分）。",
+    "statusColumn": "状態",
+    "status": {
+      "pending": "リクエスト中",
+      "completed": "完了",
+      "failed": "失敗",
+      "timeout": "タイムアウト"
+    },
+    "requested": "ダウンロードをリクエストしました。結果が届くと状態が更新されます。",
+    "requestFailed": "ダウンロードのリクエストに失敗しました: {{message}}",
+    "missingExtId": "管制に登録されていない位置です。先に位置情報を同期してください。",
+    "result": {
+      "completed": "マップダウンロード完了",
+      "failed": "マップダウンロード失敗: {{message}}",
+      "timeout": "マップのダウンロードが時間内に完了しませんでした。"
+    }
   }
 }

@@ -101,6 +101,7 @@ const EMPTY_CLASSIFIER_RULES: TaskflowClassifierRules = {
   actionRequestKeywords: [],
   clauseSeparatorPhrases: [],
   clauseNoisePhrases: [],
+  composeBlockPhrases: [],
 }
 
 export class ChatOrchestrator {
@@ -997,10 +998,23 @@ export class ChatOrchestrator {
     message: string,
     toolCtx: ToolContext,
     rules: TaskflowClassifierRules,
+    canvasNodeNames: string[] = [],
   ): Promise<Record<string, unknown> | undefined> {
     const composeTool = screen.actionTools.find((tool) => tool?.declaration?.name === 'compose_linear_taskflow')
     if (!composeTool) return undefined
-    if (!this.looksLikeTaskflowEditMessage(message, rules)) return undefined
+    // 판정은 의도 분류와 같은 기준을 쓴다. 노드 이름만 부른 요청("Angry 얼굴 표시해줘")도 편집 요청이다.
+    if (!this.looksLikeTaskflowEditMessage(message, rules, canvasNodeNames)) return undefined
+
+    // "지워줘", "바꿔줘" 처럼 있는 노드를 고치라는 요청은 새로 만드는 경로가 가로채면 안 된다.
+    // (compose 는 노드를 추가하므로 삭제 요청에 노드가 하나 늘어난다.) 표현은 rule 테이블에서 온다.
+    if (this.hasClassifierPhrase(message, rules?.composeBlockPhrases ?? [])) {
+      this.stageLog(
+        '4단계:결정적드래프트_생략',
+        this.resolveReqId((toolCtx as any)?.body),
+        'status=skipped reason=기존 노드를 고치는 요청이라 compose 결정적 경로를 태우지 않는다',
+      )
+      return undefined
+    }
 
     try {
       const result = await composeTool.execute({}, toolCtx)
@@ -1316,6 +1330,7 @@ export class ChatOrchestrator {
         message,
         toolCtx,
         taskflowClassifierRules,
+        this.readCanvasNodeNames((toolCtx as any)?.body),
       )
       const deterministicApplied = Boolean(deterministicTaskflowParam)
       const deterministicClarification = this.extractActionClarification(deterministicTaskflowParam)

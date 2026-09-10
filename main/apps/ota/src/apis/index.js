@@ -1,4 +1,5 @@
 export * as campaignApis from './campaignApis'
+export * as campaignGroupApis from './campaignGroupApis'
 export * as targetGroupApis from './targetGroupApis'
 export * as actionApis from './actionApis'
 export * as deviceApis from './deviceApis'

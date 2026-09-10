@@ -79,6 +79,51 @@ export const FieldGroup = styled.div`
   width: 100%;
 `
 
+// Rollout Schedule 입력 행 : 날짜 / 시간 / 타임존
+export const ScheduleFieldRow = styled.div`
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: end;
+  gap: 1.6rem;
+  width: 100%;
+
+  @media all and (max-width: 1280px) {
+    grid-template-columns: 1fr;
+  }
+
+  // Calendar 컴포넌트는 label prop이 없어 여기서 라벨을 붙인다
+  & .scheduleField {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+    min-width: 0;
+  }
+
+  & .scheduleField > .fieldLabel {
+    color: var(--color-secondary-60);
+  }
+`
+
+// 섹션 제목 + 도움말 아이콘 (SectionTitle의 title에 노드로 전달)
+export const TitleWithHelp = styled.span`
+  display: inline-flex;
+  align-items: center;
+`
+
+// 섹션 하단 안내 문구 (아이콘 + 텍스트)
+export const SectionNotice = styled.p`
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  color: var(--color-secondary-60);
+
+  // 아이콘이 문구 앞에 오는 배치라 앵커의 좌측 여백은 필요 없다
+  & > span:first-child {
+    margin-left: 0;
+  }
+`
+
 export const StateStatusList = styled.div`
   display: flex;
   gap: 0.8rem;

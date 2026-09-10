@@ -55,7 +55,7 @@
         "denyActionSingleOut": "ACTION 노드는 오른쪽 출력을 1개만 가질 수 있습니다.",
         "denyControlSingleRightOut": "CONTROL 노드는 오른쪽 출력을 1개만 가질 수 있습니다.",
         "denyControlSingleLeftIn": "CONTROL 노드는 왼쪽 입력을 1개만 가질 수 있습니다.",
-        "denyParallelDuplicateContentType": "Parallel 노드는 동일한 컨텐츠 타입의 ACTION 자식을 2개 이상 둘 수 없습니다.",
+        "denyParallelDuplicateTask": "Parallel 노드는 같은 Task 의 자식을 2개 이상 둘 수 없습니다.",
         "denyDefault": "연결할 수 없는 위치입니다."
       }
     },

@@ -39,10 +39,17 @@ import {
   findGraphNodes,
   parseNodeTarget,
   readCurrentGraphFromContext,
+  findFlowTailNode,
+  formatNodeTarget,
+  resolveContentByLooseName,
+  findClosestTaskName,
+  isConcurrentControlTask,
+  readConcurrentChildTaskNames,
+  toMatchKey,
   readTaskContentsFromContext,
   resolveTaskAlias,
 } from '../pipeline/tools/taskflow-palette'
-import { getPropertyTmsStore } from '../features/taskflow/service/property-tms-store.service'
+import { getPropertyTmsStore, TASK_TYPE } from '../features/taskflow/service/property-tms-store.service'
 import { getScreenConfig } from '../pipeline/screen-registry'
 import type { ToolDefinition } from '../pipeline/tool.type'
 import { buildToolContextFromBody } from '../pipeline/tool-context.util'
@@ -130,6 +137,16 @@ type ScreenTask =
   | 'create'
   | 'update'
   | 'delete'
+
+/** "Awe, Love, Joy" 처럼 한 번에 여러 노드를 말한 경우를 이름 목록으로 가른다.
+ * 나누는 기준은 문장 기호(쉼표·세미콜론·가운뎃점)라 언어 문구가 아니다.
+ */
+function splitNodeNameList(value: string): string[] {
+  return String(value ?? '')
+    .split(/[,;，、·]+/u)
+    .map((name) => name.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '').trim())
+    .filter(Boolean)
+}
 
 @Injectable()
 export class ChatService {
@@ -1409,7 +1426,10 @@ export class ChatService {
     const store = getPropertyTmsStore()
     if (Boolean(store?.get(resolveTaskAlias(value)))) return true
     if (contents.length === 0) return true
-    return Boolean(findContentRef(value, '', contents))
+    // 부분 이름·오타로 불러도 룰을 막지 않는다. 실제 이름은 resolveStepName 이 맞춘다.
+    return Boolean(
+      findContentRef(value, '', contents) ?? resolveContentByLooseName(value, contents) ?? findClosestTaskName(value),
+    )
   }
 
   /** 말로 센 순번을 프론트가 읽는 "이름 #N" 표기로 바꾼다. 표기 규칙은 rule 테이블에서 온다. */
@@ -1513,14 +1533,18 @@ export class ChatService {
 
     const singleAttach =
       ruleMatch.graphOperation === 'attach-child' || ruleMatch.graphOperation === 'attach-right'
+    // "Parallel 아래에 Awe, Love, Joy 추가해줘" 처럼 한 번에 여러 노드를 붙이는 경우.
+    // 나누는 기준은 문장 기호라 코드에 둔다(문구가 아니다).
+    const attachStepNames = splitNodeNameList(String(nodes[1] ?? ''))
     if (singleAttach || ruleMatch.graphOperation === 'append-tail') {
-      const newNodeName = singleAttach ? String(nodes[1] ?? '') : String(nodes[0] ?? '')
+      const newNodeNames = singleAttach ? attachStepNames : [String(nodes[0] ?? '')]
       const anchorOk = singleAttach ? this.canvasNameExists(ctx, String(nodes[0] ?? ''), 'canvas') : true
-      const stepOk = this.canvasNameExists(ctx, newNodeName, 'palette')
+      const stepOk =
+        newNodeNames.length > 0 && newNodeNames.every((name) => this.canvasNameExists(ctx, name, 'palette'))
 
       if (!anchorOk || !stepOk) {
         this.logger.warn(
-          `[front-rule][taskflow-graph] reqId=${ctx.reqId} 이름 확인 실패로 룰 처리 생략 anchorOk=${anchorOk} stepOk=${stepOk} nodes=${JSON.stringify(nodes)}`,
+          `[front-rule][taskflow-graph] reqId=${ctx.reqId} 이름 확인 실패로 룰 처리 생략 anchorOk=${anchorOk} stepOk=${stepOk} nodes=${JSON.stringify(nodes)} steps=${JSON.stringify(newNodeNames)}`,
         )
         return null
       }
@@ -1529,29 +1553,77 @@ export class ChatService {
     // 기준 노드에 하나만 붙이는 룰. attach-child 는 왼쪽 핸들(자식), attach-right 는 오른쪽 핸들(다음 순서)이다.
     // "두번째 Parallel" 같은 말로 센 순번은 프론트가 읽는 "이름 #N" 으로 바꿔 넘긴다.
     const anchorName = await this.normalizeNodeTargetName(routeKey, String(nodes[0] ?? ''))
-    const attachHandle = ruleMatch.graphOperation === 'attach-child' ? 'left' : 'right'
+    // "Parallel 에 X 추가" 처럼 기준이 제어 노드면 기본이 자식이다.
+    // 우측/뒤/다음 이라고 말한 경우만 다음 순서로 잇는다(표현은 rule 테이블).
+    const graph = readCurrentGraphFromContext(ctx.body?.context)
+    const anchorNode = findGraphNodes(anchorName, graph)[0]
+    const languageRules = await loadTaskflowLanguageRules(routeKey)
+    const saysRightSide = includesConfiguredPhrase(ctx.body?.message ?? '', languageRules.nodeAttachRightPhrases)
+    const attachHandle =
+      ruleMatch.graphOperation === 'attach-child' ||
+      (anchorNode?.taskType === TASK_TYPE.control && !saysRightSide)
+        ? 'left'
+        : 'right'
+    // Start 에서 이어지는 흐름의 끝. 기준을 프론트에 맡기면 꼬리가 여러 개일 때 엉뚱한 곳에 붙는다.
+    const flowTailNode = findFlowTailNode(graph)
+    const paletteContents = readTaskContentsFromContext(ctx.body?.context)
+
+    // "인트로 tts" 처럼 부른 이름을 팔레트의 실제 콘텐츠 이름으로 맞춘다. 프론트는 이 이름으로 팔레트를 찾는다.
+    // 순서가 중요하다: 정확한 Task -> 팔레트 콘텐츠 -> 오타 보정.
+    // 콘텐츠 이름이 Task 표현과 한 글자 차이일 수 있어("Love" vs MoveTo 의 "move") 팔레트를 먼저 본다.
+    const resolveStepName = (value: string): string => {
+      const raw = resolveTaskAlias(String(value ?? '').trim())
+      if (!raw || getPropertyTmsStore()?.get(raw)) return raw
+
+      const content = resolveContentByLooseName(raw, paletteContents)
+      if (content) return content.contentName
+
+      return findClosestTaskName(raw) ?? raw
+    }
+    // 동시 실행 제어 노드(Parallel 등)에 자식으로 붙일 때는 같은 Task 를 하나만 남긴다.
+    // 얼굴 두 개, 발화 두 개를 동시에 수행할 수 없어 프론트 연결 규칙도 이를 막는다.
+    const attachNamesToUse =
+      attachHandle === 'left' && anchorNode && isConcurrentControlTask(anchorNode.taskName ?? '')
+        ? (() => {
+            const usedTasks = new Set(
+              readConcurrentChildTaskNames(graph, anchorNode.id).map((name) => toMatchKey(name)),
+            )
+            const kept: string[] = []
+            for (const name of attachStepNames) {
+              const resolved = resolveStepName(name)
+              const taskName = getPropertyTmsStore()?.get(resolved)
+                ? resolved
+                : resolveContentByLooseName(resolved, paletteContents)?.taskName ?? ''
+              const taskKey = toMatchKey(taskName)
+              if (taskKey && usedTasks.has(taskKey)) continue
+              if (taskKey) usedTasks.add(taskKey)
+              kept.push(name)
+            }
+            return kept.length > 0 ? kept : attachStepNames.slice(0, 1)
+          })()
+        : attachStepNames
+
     const insertAfter = ruleMatch.graphOperation === 'append-tail'
-      // 기준을 비우면 프론트가 Start 로부터 이어진 순차 흐름의 꼬리(자식 제외)를 찾아 그 우측에 붙인다.
-      // Start 만 있는 캔버스에서는 Start 우측이 된다.
+      // 흐름의 끝 우측에 붙인다. 끝이 없으면(Start 만 있는 캔버스) 기준을 비워 프론트가 Start 우측에 놓게 한다.
       ? [
           {
-            after: '',
-            step: resolveTaskAlias(String(nodes[0] ?? '')),
+            after: flowTailNode ? formatNodeTarget(flowTailNode) : '',
+            step: resolveStepName(String(nodes[0] ?? '')),
             appendOnly: true,
             sourceHandle: 'right',
             targetHandle: 'left',
           },
         ]
       : ruleMatch.graphOperation === 'attach-child' || ruleMatch.graphOperation === 'attach-right'
-      ? [
-          {
-            after: anchorName,
-            step: resolveTaskAlias(String(nodes[1] ?? '')),
-            appendOnly: true,
-            sourceHandle: attachHandle,
-            targetHandle: 'left',
-          },
-        ]
+      // 여러 노드를 붙일 때도 기준은 하나다. 자식(left)은 모두 같은 기준에 달리고,
+      // 다음 순서(right)는 앞서 만든 노드에 이어 붙여 흐름이 갈라지지 않게 한다.
+      ? attachNamesToUse.map((name, index) => ({
+          after: attachHandle === 'left' || index === 0 ? anchorName : resolveStepName(attachNamesToUse[index - 1]),
+          step: resolveStepName(name),
+          appendOnly: true,
+          sourceHandle: attachHandle,
+          targetHandle: 'left' as const,
+        }))
       : arrowLines.length > 0
       ? arrowLines.flatMap((line) => line.labels.map((label, index) => {
           if (index === 0) {
@@ -1585,8 +1657,17 @@ export class ChatService {
       ? arrowLines.map((line) => line.labels.join(' -> ')).join('\n')
       : nodes.join(' -> ')
     // 문구는 rule.reply_text 를 쓴다. {{nodes}} 는 연결 대상, {{anchor}}/{{node}} 는 기준/추가 노드다.
+    // 제어 노드라서 자식으로 돌린 경우에는 같은 표의 attach-child 룰 문구를 쓴다(코드에 문구를 두지 않는다).
+    const flippedToChild = attachHandle === 'left' && ruleMatch.graphOperation === 'attach-right'
+    const childRuleReplyText = flippedToChild
+      ? String(
+          (await this.chatRules.listByAppAndScreen(this.inferAppKeyFromRoute(routeKey), routeKey)).find(
+            (row) => String((row.extraJson as Record<string, unknown> | undefined)?.graphOperation ?? '') === 'attach-child',
+          )?.replyText ?? '',
+        ).trim()
+      : ''
     const replyTemplate = String(
-      (ruleMatch.toolArgs?.replyText as string | undefined) ?? ruleMatch.rule?.replyText ?? '',
+      childRuleReplyText || (ruleMatch.toolArgs?.replyText as string | undefined) || ruleMatch.rule?.replyText || '',
     ).trim()
     const text = replyTemplate
       ? replyTemplate
@@ -1594,7 +1675,9 @@ export class ChatService {
           .replace(/\{\{\s*anchor\s*\}\}/g, ruleMatch.graphOperation === 'append-tail' ? '' : String(nodes[0] ?? ''))
           .replace(
             /\{\{\s*node\s*\}\}/g,
-            ruleMatch.graphOperation === 'append-tail' ? String(nodes[0] ?? '') : String(nodes[1] ?? nodes[0] ?? ''),
+            ruleMatch.graphOperation === 'append-tail'
+              ? String(nodes[0] ?? '')
+              : attachNamesToUse.map((name) => resolveStepName(name)).join(', ') || String(nodes[1] ?? nodes[0] ?? ''),
           )
       : `${connectionText} 연결을 캔버스에 반영했습니다.`
 

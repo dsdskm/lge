@@ -10,6 +10,8 @@ const log = (...args) => {
   if (DEBUG) console.log(...args)
 }
 
+const noop = () => {}
+
 // Reject MQTT wildcards so a caller can't subscribe broadly (e.g. "#", "+").
 const isValidTopic = (topic) => typeof topic === 'string' && topic.trim().length > 0 && !/[#+]/.test(topic)
 
@@ -143,13 +145,15 @@ export const useMqtt = (options = {}) => {
 
   const subscribe = useCallback((topic, handler) => {
     log(`MQTT subscribe attempt: ${topic}`)
+    // Callers use the return value directly as the unsubscribe function, so every path
+    // must return a function (a no-op object here would blow up in effect cleanup).
     if (!isValidTopic(topic)) {
       console.warn('MQTT subscribe rejected: invalid topic')
-      return { unsubscribe: () => {} }
+      return noop
     }
     if (!pubsubInstance) {
       console.warn('PubSub is not initialized yet (pubsubInstance is null).')
-      return { unsubscribe: () => {} }
+      return noop
     }
 
     if (!globalSubscribers[topic]) {

@@ -3,6 +3,9 @@ import { axiosApi, axiosHealthApi, createCrud } from './crudFactory'
 // 맵 리소스 CRUD (init-setup-be: /api/v1/maps)
 export const { create, list, getById, update, remove } = createCrud('maps')
 
+// 외부 맵 서버 업로드(zip 생성 + 전송)의 타임아웃. 공용 기본값 10s 로는 맵 크기에 따라 끊긴다.
+const UPLOAD_TIMEOUT_MS = 30000
+
 /**
  * 맵 파일을 외부 맵 서버로 업로드 (POST /maps/upload).
  *
@@ -11,15 +14,19 @@ export const { create, list, getById, update, remove } = createCrud('maps')
  * ('<난수 8자>_working' → 승격 시 접미사 제거)을 FE 가 경로로 조립하지 않아야
  * 규약이 한쪽으로만 남고, extMapId 를 기록할 레코드와 zip 대상이 어긋나지 않는다.
  *
+ * 타임아웃은 공용 기본값(10s, @repo/apis API_CONFIG.TIMEOUT)보다 길게 잡는다 — BE 가 맵
+ * 디렉터리를 zip 으로 묶어 외부 맵 서버까지 올리는 왕복이라 맵 크기에 따라 10s 를 넘긴다.
+ *
  * @param {{groupId: string, siteId: string, buildingId?: string, floorId?: string, areaId?: string,
  *   mapType: string, filename: string, authorization?: string, localMapId: number}} body
  */
 export const uploadMap = async (body) => {
-  return await axiosApi.post('/maps/upload', body)
+  return await axiosApi.post('/maps/upload', body, { timeout: UPLOAD_TIMEOUT_MS })
 }
 
+/** POI 변경분 업로드. uploadMap 과 같은 이유로 타임아웃을 늘린다(외부 맵 서버 왕복). */
 export const uploadPoi = async (body) => {
-  return await axiosApi.post('/map-pois/upload-mapserver', body)
+  return await axiosApi.post('/map-pois/upload-mapserver', body, { timeout: UPLOAD_TIMEOUT_MS })
 }
 
 /**

@@ -52,7 +52,7 @@
         "denyActionSingleOut": "ACTION ノードは右側出力を 1 つだけ持てます。",
         "denyControlSingleRightOut": "CONTROL ノードは右側出力を 1 つだけ持てます。",
         "denyControlSingleLeftIn": "CONTROL ノードは左側入力を 1 つだけ持てます。",
-        "denyParallelDuplicateContentType": "Parallel ノードは同じコンテンツ タイプの ACTION 子を 2 つ以上持てません。",
+        "denyParallelDuplicateTask": "Parallel ノードは同じ Task の子を 2 つ以上持てません。",
         "denyDefault": "接続できない位置です。"
       }
     },

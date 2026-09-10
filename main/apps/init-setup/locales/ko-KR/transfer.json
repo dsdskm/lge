@@ -67,6 +67,21 @@
     "action": "다운로드",
     "modalTitle": "맵 다운로드",
     "confirm": "다운로드",
-    "notImplemented": "다운로드 (미구현)"
+    "description": "관제에 요청을 보냅니다. 결과가 도착하면 상태가 자동으로 갱신됩니다(최대 5분).",
+    "statusColumn": "상태",
+    "status": {
+      "pending": "요청 중",
+      "completed": "완료",
+      "failed": "실패",
+      "timeout": "시간 초과"
+    },
+    "requested": "다운로드를 요청했습니다. 결과가 오면 상태가 갱신됩니다.",
+    "requestFailed": "다운로드 요청 실패: {{message}}",
+    "missingExtId": "관제에 등록되지 않은 위치입니다. 위치 정보를 먼저 동기화해 주세요.",
+    "result": {
+      "completed": "맵 다운로드 완료",
+      "failed": "맵 다운로드 실패: {{message}}",
+      "timeout": "맵 다운로드가 시간 내에 완료되지 않았습니다."
+    }
   }
 }

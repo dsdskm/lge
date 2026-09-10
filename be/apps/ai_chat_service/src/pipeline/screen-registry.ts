@@ -5,7 +5,7 @@ import { listActionTools } from './action-tool-registry'
 import { createComposeTaskflowTool } from './tools/compose-taskflow-tree.tool'
 import { createEditTaskflowTool } from './tools/edit-taskflow.tool'
 import { createReadTaskflowGraphTool } from './tools/read-taskflow-graph.tool'
-import { TASKFLOW_MESSAGE_KEY } from './tools/taskflow-message'
+import { TASKFLOW_TOOL_KEY } from './tools/taskflow-message'
 
 export type ScreenConfig = {
   /** currentApp::currentPath. handleXxx 의 routeKey 와 동일. */
@@ -97,9 +97,9 @@ function findParameterizedScreenKey(routeKey: string): string | null {
  * 어떤 화면이 어떤 도구를 쓰는지는 화면 키가 아니라 DB(prompt 의 action-tools 행)가 정한다.
  */
 const ACTION_TOOL_FACTORIES: Record<string, () => ToolDefinition | null> = {
-  [TASKFLOW_MESSAGE_KEY.toolCompose]: createComposeTaskflowTool,
-  [TASKFLOW_MESSAGE_KEY.toolEdit]: createEditTaskflowTool,
-  [TASKFLOW_MESSAGE_KEY.toolReadGraph]: createReadTaskflowGraphTool,
+  [TASKFLOW_TOOL_KEY.compose]: createComposeTaskflowTool,
+  [TASKFLOW_TOOL_KEY.edit]: createEditTaskflowTool,
+  [TASKFLOW_TOOL_KEY.readGraph]: createReadTaskflowGraphTool,
 }
 
 /** 구현체가 있는 도구의 tool key 와 LLM 함수 이름. 표의 llm_function 과 대조하는 데 쓴다.

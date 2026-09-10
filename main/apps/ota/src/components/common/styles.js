@@ -102,3 +102,18 @@ export const StyledExpandedWrapper = styled.div`
   background-color: ${({ $inModal }) => ($inModal ? 'transparent' : 'var(--color-neutral-30)')};
   border-radius: 0.5rem;
 `
+
+// 툴팁 앵커 : Icon 컴포넌트는 추가 props를 svg로 전달하지 않으므로
+// data-tooltip-* 속성은 이 래퍼가 들고 있어야 react-tooltip이 인식한다
+export const StyledInfoAnchor = styled.span`
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.4rem;
+  color: var(--color-secondary-60);
+  cursor: help;
+  vertical-align: middle;
+
+  &:hover {
+    color: var(--color-secondary-80);
+  }
+`

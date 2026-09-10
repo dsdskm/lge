@@ -139,10 +139,19 @@ const MessageBundleEditor = ({ value, onChange }) => {
     const write = (next) => onChange(JSON.stringify(next, null, 2))
     const keys = Object.keys(bundle)
     const needle = filter.trim().toLowerCase()
-    // 접두어(tool./edit./compose.)끼리 붙여 보여 줘야 찾기 쉽다.
+    // 접두어(llm./ui./cfg. + 두번째 마디)끼리 묶어 보여 줘야 찾기 쉽다.
     const visibleKeys = keys
         .filter((key) => !needle || key.toLowerCase().includes(needle) || String(bundle[key]).toLowerCase().includes(needle))
         .sort((a, b) => a.localeCompare(b))
+    // 키의 마지막 마디만 항목 이름으로 쓰고, 앞 마디는 그룹 머리말(llm › tool › edit › param)로 올린다.
+    const groups = visibleKeys.reduce((acc, key) => {
+        const parts = key.split('.')
+        const group = parts.slice(0, -1).join('.')
+        const last = acc[acc.length - 1]
+        if (last && last.group === group) last.keys.push(key)
+        else acc.push({ group, depth: Math.max(0, parts.length - 2), keys: [key] })
+        return acc
+    }, [])
 
     return (
         <BundleWrap>
@@ -162,37 +171,45 @@ const MessageBundleEditor = ({ value, onChange }) => {
                 <FormTextarea rows={24} value={String(value ?? '')} onChange={(event) => onChange(event.target.value)} />
             ) : (
                 <>
-                    {visibleKeys.map((key) => {
-                        const text = String(bundle[key] ?? '')
-                        const rows = Math.min(20, Math.max(2, text.split('\n').length + 1))
-                        return (
-                            <BundleRow key={key}>
-                                <BundleRowHead>
-                                    <BundleKey>{key}</BundleKey>
-                                    <BundleMeta>{text.length}자</BundleMeta>
-                                    <BundleGhostButton
-                                        type="button"
-                                        onClick={() => {
-                                            const next = { ...bundle }
-                                            delete next[key]
-                                            write(next)
-                                        }}
-                                    >
-                                        삭제
-                                    </BundleGhostButton>
-                                </BundleRowHead>
-                                <FormTextarea
-                                    rows={rows}
-                                    value={text}
-                                    onChange={(event) => write({ ...bundle, [key]: event.target.value })}
-                                />
-                            </BundleRow>
-                        )
-                    })}
+                    {groups.map(({ group, depth, keys: groupKeys }) => (
+                        <React.Fragment key={group}>
+                            <BundleGroupHead $depth={depth}>
+                                <BundleKey>{group ? group.split('.').join(' › ') : '(최상위)'}</BundleKey>
+                                <BundleMeta>{groupKeys.length}개</BundleMeta>
+                            </BundleGroupHead>
+                            {groupKeys.map((key) => {
+                                const text = String(bundle[key] ?? '')
+                                const rows = Math.min(20, Math.max(2, text.split('\n').length + 1))
+                                return (
+                                <BundleRow key={key} $depth={depth}>
+                                    <BundleRowHead>
+                                        <BundleKey title={key}>{key.split('.').pop()}</BundleKey>
+                                        <BundleMeta>{text.length}자</BundleMeta>
+                                        <BundleGhostButton
+                                            type="button"
+                                            onClick={() => {
+                                                const next = { ...bundle }
+                                                delete next[key]
+                                                write(next)
+                                            }}
+                                        >
+                                            삭제
+                                        </BundleGhostButton>
+                                    </BundleRowHead>
+                                    <FormTextarea
+                                        rows={rows}
+                                        value={text}
+                                        onChange={(event) => write({ ...bundle, [key]: event.target.value })}
+                                    />
+                                </BundleRow>
+                                )
+                            })}
+                        </React.Fragment>
+                    ))}
 
                     <BundleToolbar>
                         <FormInput
-                            placeholder="새 키 (예: edit.locationRequired)"
+                            placeholder="새 키 (예: ui.edit.locationRequired)"
                             value={newKey}
                             onChange={(event) => setNewKey(event.target.value)}
                         />
@@ -637,10 +654,20 @@ const BundleCount = styled.span`
 const BundleRow = styled.div`
     display: grid;
     gap: 6px;
+    margin-left: ${({ $depth = 0 }) => $depth * 14 + 12}px;
     padding: 10px 12px;
     border: 1px solid #e2e8f0;
     border-radius: 10px;
     background: #f8fafc;
+`
+const BundleGroupHead = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    margin-left: ${({ $depth = 0 }) => $depth * 14}px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #cbd5e1;
 `
 const BundleRowHead = styled.div`
     display: flex;

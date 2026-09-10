@@ -7,12 +7,22 @@ import {
   readCurrentGraph,
   describeTaskProperties,
   readTaskContents,
+  findFlowTailNode,
+  isConcurrentControlTask,
+  readControlChildScope,
+  formatNodeTarget,
   resolveProperties,
+  fillPropertiesFromMessage,
   toMatchKey,
   TASKFLOW_CANVAS_SCREEN_KEY,
   type TaskContentRef,
 } from './taskflow-palette'
-import { taskflowMessage, taskflowMessageNumber, TASKFLOW_MESSAGE_KEY } from './taskflow-message'
+import {
+  taskflowMessage,
+  taskflowNodeGuides,
+  TASKFLOW_MESSAGE_KEY,
+  TASKFLOW_TOOL_KEY,
+} from './taskflow-message'
 import { includesConfiguredPhrase, loadTaskflowClassifierRules } from '../taskflow-language-rules'
 import { trace, traceReqId } from '../trace.util'
 import { buildApplyDraftAction } from './taskflow-client-action'
@@ -45,6 +55,8 @@ type ComposeFailure = {
 /** 사용자 요청과 실제 구성이 달라진 지점. 응답에 그대로 드러낸다. */
 type ComposeNotes = {
   unknownProperties: string[]
+  /** 동시 실행 제어 노드 아래에서 같은 Task 라 넣지 않은 노드 이름. */
+  duplicateConcurrent: string[]
   missing: string[]
   unresolved: string[]
   substituted: Array<{ requested: string; resolved: string }>
@@ -53,6 +65,9 @@ type ComposeNotes = {
 }
 
 const TOOL_NAME = 'compose_linear_taskflow'
+
+/** 못 찾은 이름에 대해 되묻을 때 함께 보여 줄 후보 개수. 문구가 아니라 표시 한도라 코드에 둔다. */
+const SUGGESTION_LIMIT = 3
 
 function readComposeIntents(task: TaskSemantics): string[] {
   const single = String(task.composeHint?.intent ?? '').trim()
@@ -66,18 +81,11 @@ function findTaskNamesByIntent(tasks: TaskSemantics[], intent: string): string[]
 }
 
 // 제어 노드 이름을 하드코딩하지 않는다. 카탈로그에 없는 이름을 안내하면 LLM 이 그대로 쓰고 거부된다.
+// 노드별 지침(llm.tool.compose.node.<task>)은 카탈로그에 있는 Task 것만 붙는다.
 function buildDescription(catalogText: string, tasks: TaskSemantics[]): string {
-  const joiner = taskflowMessage(TASKFLOW_MESSAGE_KEY.composeTaskJoiner)
-  const buildRule = (intent: string, key: string) => {
-    const names = findTaskNamesByIntent(tasks, intent)
-    if (names.length === 0) return ''
-    return taskflowMessage(key, { tasks: names.join(joiner) })
-  }
-
   return taskflowMessage(TASKFLOW_MESSAGE_KEY.toolCompose, {
     catalog: catalogText,
-    concurrentRule: buildRule('concurrent', TASKFLOW_MESSAGE_KEY.composeConcurrentRule),
-    alternativeRule: buildRule('alternative', TASKFLOW_MESSAGE_KEY.composeAlternativeRule),
+    nodeGuides: taskflowNodeGuides('compose', tasks.map((task) => task.taskName)),
     propertyCatalog: describeTaskProperties(tasks),
   })
 }
@@ -130,6 +138,11 @@ function buildAssistantText(roots: TaskflowTreeNode[], notes: ComposeNotes): str
       }),
     )
   }
+  if (notes.duplicateConcurrent.length > 0) {
+    lines.push(
+      taskflowMessage(TASKFLOW_MESSAGE_KEY.composeDuplicateConcurrent, { names: emphasize(notes.duplicateConcurrent) }),
+    )
+  }
   if (notes.unresolved.length > 0) {
     lines.push(taskflowMessage(TASKFLOW_MESSAGE_KEY.composeUnresolved, { names: emphasize(notes.unresolved) }))
   }
@@ -161,6 +174,7 @@ function buildForest(
   store: NonNullable<ReturnType<typeof getPropertyTmsStore>>,
   contents: TaskContentRef[],
   notes: ComposeNotes,
+  message: string,
 ): TaskflowTreeNode[] | ComposeFailure {
   if (nodes[0].depth !== 0) {
     return { clarification: taskflowMessage(TASKFLOW_MESSAGE_KEY.composeRootRequired), suggestions: [] }
@@ -211,11 +225,15 @@ function buildForest(
       children: [],
     }
     // 속성은 스키마(property_tms.compose_hint.properties)에 있는 키만 남긴다.
-    if (node.properties) {
-      const resolvedProperties = resolveProperties(semantics, node.properties)
-      if (Object.keys(resolvedProperties.properties).length > 0) treeNode.properties = resolvedProperties.properties
-      notes.unknownProperties.push(...resolvedProperties.unknownKeys)
-    }
+    const resolvedProperties = resolveProperties(semantics, node.properties ?? {})
+    notes.unknownProperties.push(...resolvedProperties.unknownKeys)
+    // LLM 이 "3초 타임아웃" 의 값을 빠뜨리거나 contentName 에 적어 보내는 일이 있어, 문장의 숫자로 마지막에 채운다.
+    const filled = fillPropertiesFromMessage(
+      semantics,
+      resolvedProperties.properties,
+      [message, node.contentName ?? ''].join(' '),
+    )
+    if (Object.keys(filled.properties).length > 0) treeNode.properties = filled.properties
     if (contentRef && node.contentName) {
       treeNode.contentName = contentRef.contentName
       treeNode.contentId = contentRef.contentId
@@ -223,6 +241,9 @@ function buildForest(
       if (toMatchKey(contentRef.contentName) !== toMatchKey(node.contentName)) {
         notes.substituted.push({ requested: node.contentName, resolved: contentRef.contentName })
       }
+    } else if (semantics.taskType === TASK_TYPE.control) {
+      // 제어 노드는 콘텐츠가 없다. LLM 이 "3초" 처럼 값을 contentName 에 적어 보내도 노드는 그대로 만든다.
+      // 여기서 버리면 제어 노드와 그 자식이 통째로 사라진다.
     } else if (node.contentName && toMatchKey(node.contentName) !== toMatchKey(semantics.taskName)) {
       // 대상을 못 찾아도 구조는 만든다. 같은 Task 의 다른 콘텐츠로 임시 채우고 응답에 경고를 남긴다.
       const placeholder = contents.find((row) => toMatchKey(row.taskName) === toMatchKey(semantics.taskName))
@@ -259,7 +280,7 @@ function buildForest(
       clarification: taskflowMessage(TASKFLOW_MESSAGE_KEY.composeTaskNotFound),
       suggestions: notes.missing
         .flatMap((name) => findSuggestions(name, store.list()))
-        .slice(0, taskflowMessageNumber(TASKFLOW_MESSAGE_KEY.composeSuggestionLimit)),
+        .slice(0, SUGGESTION_LIMIT),
     }
   }
 
@@ -304,6 +325,64 @@ export async function wrapConcurrentRootsIfNeeded(
   ]
 }
 
+/** 사용자가 제어 노드를 직접 지목한 문장인지. 이름/ trigger_phrases 는 property_tms 에서 온다.
+ *
+ * NL 파서는 절을 전부 depth 0 으로만 나열하므로
+ * "thumb_up 모션 성공하면 Love 얼굴, 실패하면 Idle 얼굴 보이게 하는 ifThenElse 를 만들어줘" 같은
+ * 중첩 요청(제어 노드 + 순서 있는 자식 + 분기 역할)은 결정적 경로로 만들 수 없다.
+ * 이런 문장은 LLM 툴콜 경로가 depth 를 붙여 내려주게 넘긴다.
+ */
+export function mentionsControlTask(
+  message: string,
+  store: NonNullable<ReturnType<typeof getPropertyTmsStore>>,
+): { taskName: string; phraseKey: string } | undefined {
+  const messageKey = toMatchKey(message)
+  if (!messageKey) return undefined
+
+  for (const task of store.list()) {
+    if (task.taskType !== TASK_TYPE.control) continue
+
+    const keys = [task.taskName, ...(task.triggerPhrases ?? [])]
+      .map((value) => toMatchKey(String(value ?? '')))
+      .filter((value) => value.length >= 2)
+
+    const matched = keys.find((key) => messageKey.includes(key))
+    if (matched) return { taskName: task.taskName, phraseKey: matched }
+  }
+
+  return undefined
+}
+
+/** 제어 노드를 부르는 말이 절 끝에 붙어 다음 절과 이어 주는 접속어인지("~하면서", "~하고 동시에").
+ * 이런 말은 뒤 절의 동작까지 함께 묶으라는 뜻이다.
+ */
+function joinsNextClause(clause: string, phraseKey: string): boolean {
+  return toMatchKey(clause).endsWith(phraseKey)
+}
+
+/** 동시 실행 제어 노드(Parallel 등) 아래에서 같은 Task 의 자식을 하나만 남긴다.
+ * 얼굴 두 개, 발화 두 개를 동시에 수행할 수는 없어서 프론트 연결 규칙도 이를 막는다.
+ * 어떤 Task 가 동시 실행인지는 property_tms(compose_hint.intent=concurrent)가 정한다.
+ */
+function dropDuplicateConcurrentChildren(nodes: TaskflowTreeNode[], notes: ComposeNotes): void {
+  for (const node of nodes) {
+    if (isConcurrentControlTask(node.taskName)) {
+      const usedTasks = new Set<string>()
+      node.children = node.children.filter((child) => {
+        const key = toMatchKey(child.taskName)
+        if (usedTasks.has(key)) {
+          notes.duplicateConcurrent.push(formatNodeLabel(child.taskName, child.contentName) || child.taskName)
+          return false
+        }
+        usedTasks.add(key)
+        return true
+      })
+    }
+
+    dropDuplicateConcurrentChildren(node.children, notes)
+  }
+}
+
 /** CONTROL 인데 자식이 없는 노드 이름을 모은다. 자식 개수 상한 같은 세부 규칙은 tms 앱이 검증한다. */
 function collectEmptyControls(node: TaskflowTreeNode, found: string[]): string[] {
   if (node.taskType === TASK_TYPE.control && node.children.length === 0) {
@@ -331,13 +410,13 @@ type ComposeInsertOp = {
   sourceHandle: 'left' | 'right'
   targetHandle: 'left'
   afterCreatedIndex?: number
-  placement?: 'right-of-all'
 }
 
 /** 캔버스에 이미 노드가 있을 때, roots 트리를 edit_taskflow 와 같은 insertAfter 목록으로 펼친다.
- * 전체를 새로 그리는 replace 가 아니라, 현재 흐름 우측 끝에 이어붙인다.
+ * 전체를 새로 그리는 replace 가 아니라, Start 에서 이어지는 흐름의 끝(anchorName) 우측에 이어붙인다.
+ * 기존 노드는 건드리지 않고 엣지만 하나 늘어난다.
  */
-function flattenTreeToInsertOps(roots: TaskflowTreeNode[]): ComposeInsertOp[] {
+function flattenTreeToInsertOps(roots: TaskflowTreeNode[], anchorName: string): ComposeInsertOp[] {
   const ops: ComposeInsertOp[] = []
 
   const toStep = (node: TaskflowTreeNode) => ({
@@ -366,12 +445,12 @@ function flattenTreeToInsertOps(roots: TaskflowTreeNode[]): ComposeInsertOp[] {
   let previousRootIndex: number | undefined
   for (const root of roots) {
     ops.push({
-      after: '',
+      after: previousRootIndex === undefined ? anchorName : '',
       step: toStep(root),
       appendOnly: true,
       sourceHandle: 'right',
       targetHandle: 'left',
-      ...(previousRootIndex !== undefined ? { afterCreatedIndex: previousRootIndex } : { placement: 'right-of-all' }),
+      ...(previousRootIndex !== undefined ? { afterCreatedIndex: previousRootIndex } : {}),
     })
     const rootIndex = ops.length - 1
     walkChildren(root, rootIndex)
@@ -444,7 +523,53 @@ export function createComposeTaskflowTool(): ToolDefinition | null {
         })
 
         if (parsed.nodes.length === 0) return {}
-        nodes = toComposeNodes(parsed.nodes)
+
+        // 제어 노드를 지목한 문장이면 동작을 말한 순서대로 그 자식으로 넣는다.
+        // NL 파서는 절을 depth 0 으로만 나열하므로 중첩은 여기서 만든다.
+        // (IfThenElse 의 condition/success/failure 역할은 tms 앱이 자식 순서로 정한다.)
+        const control = mentionsControlTask(message, store)
+        const actionNodes = parsed.nodes.filter((node) => store.get(node.taskName)?.taskType !== TASK_TYPE.control)
+        // 제어 노드를 부른 절. 반복/지연처럼 자기 절만 품는 제어 노드는 이 절이 기준이다.
+        const controlClauseIndex = control
+          ? Math.max(
+              parsed.clauses.findIndex((row) => mentionsControlTask(row.clause, store)?.taskName === control.taskName),
+              0,
+            )
+          : -1
+        const childScope = control ? readControlChildScope(control.taskName) : 'all'
+        // 자식으로 묶는 절 범위. all 이면 제어 노드를 부른 절까지(접속어면 다음 절까지) 함께 묶고,
+        // clause 면 그 절의 동작만 자식으로 둔다. 범위 밖 절은 제어 노드 앞/뒤 순서로 남는다.
+        const controlClause = controlClauseIndex >= 0 ? parsed.clauses[controlClauseIndex]?.clause ?? '' : ''
+        const lastChildClause =
+          childScope === 'all'
+            ? controlClauseIndex + (control && joinsNextClause(controlClause, control.phraseKey) ? 1 : 0)
+            : controlClauseIndex
+        const firstChildClause = childScope === 'all' ? 0 : controlClauseIndex
+        const isChildClause = (index: number) => index >= firstChildClause && index <= lastChildClause
+
+        const parsedNodes = control
+          ? [
+              // 자식 범위보다 앞 절에서 말한 동작은 제어 노드 앞에 그대로 둔다.
+              ...actionNodes.filter((node) => node.clauseIndex < firstChildClause),
+              { depth: 0, taskName: control.taskName, clauseIndex: controlClauseIndex },
+              ...actionNodes.filter((node) => isChildClause(node.clauseIndex)).map((node) => ({ ...node, depth: 1 })),
+              // 뒤 절에서 말한 동작은 제어 노드 다음 순서로 잇는다.
+              ...actionNodes.filter((node) => node.clauseIndex > lastChildClause),
+            ]
+          : parsed.nodes
+
+        // 제어 노드만 남았으면 무엇을 자식으로 둘지 알 수 없다. LLM 툴콜 경로로 넘긴다.
+        if (control && !parsedNodes.some((node) => node.depth === 1)) {
+          ctx.log?.log(`[${TOOL_NAME}] nl-parse skipped reason=제어 노드의 자식을 찾지 못함 control=${control.taskName}`)
+          return {}
+        }
+        if (control) {
+          ctx.log?.log(
+            `[${TOOL_NAME}] nl-parse control=${control.taskName} scope=${childScope} clauses=${firstChildClause}..${lastChildClause}`,
+          )
+        }
+
+        nodes = toComposeNodes(parsedNodes)
       }
 
       // 팔레트가 비면 자식 노드가 전부 버려진다. 여기 0 이면 프론트가 context.taskflow 를 안 보낸 것이다.
@@ -454,14 +579,23 @@ export function createComposeTaskflowTool(): ToolDefinition | null {
         canvasNodes: readCurrentGraph(ctx).nodes.length,
       })
 
-      const notes: ComposeNotes = { missing: [], unresolved: [], substituted: [], placeholders: [], unknownProperties: [] }
-      const result = buildForest(nodes, store, contents, notes)
+      const notes: ComposeNotes = {
+        missing: [],
+        unresolved: [],
+        substituted: [],
+        placeholders: [],
+        unknownProperties: [],
+        duplicateConcurrent: [],
+      }
+      const userMessage = String((ctx.context as Record<string, unknown> | undefined)?.__userMessage ?? '').trim()
+      const result = buildForest(nodes, store, contents, notes, userMessage)
       if ('clarification' in result) {
         ctx.log?.log(`[${TOOL_NAME}] rejected reason=${result.clarification}`)
         return result
       }
 
       const roots = await wrapConcurrentRootsIfNeeded(result, store, ctx)
+      dropDuplicateConcurrentChildren(roots, notes)
       trace(traceReqId(ctx.context), '4-2.compose-tree', {
         beforeWrap: describeTree(result),
         afterWrap: describeTree(roots),
@@ -488,10 +622,15 @@ export function createComposeTaskflowTool(): ToolDefinition | null {
         ctx.log?.log(`[${TOOL_NAME}] content-unresolved names=${notes.unresolved.join(', ')}`)
       }
 
-      // 캔버스에 이미 노드가 있으면 지우고 새로 그리지 않고, 현재 흐름 우측 끝에 이어붙인다.
-      const draft = readCurrentGraph(ctx).nodes.length > 0
-        ? { mode: 'edit', insertAfter: flattenTreeToInsertOps(roots) }
+      // 캔버스에 이미 노드가 있으면 지우고 새로 그리지 않고, Start 에서 이어지는 흐름의 끝에 이어붙인다.
+      const graph = readCurrentGraph(ctx)
+      const tailNode = findFlowTailNode(graph)
+      const draft = graph.nodes.length > 0 && tailNode
+        ? { mode: 'edit', insertAfter: flattenTreeToInsertOps(roots, formatNodeTarget(tailNode)) }
         : { mode: 'replace', roots }
+      if (tailNode) {
+        trace(traceReqId(ctx.context), '4-2-1.compose-anchor', { tail: formatNodeTarget(tailNode) })
+      }
 
       markFlowDecision(traceReqId(ctx.context), {
         handler: 'deterministic-compose',
@@ -508,7 +647,7 @@ export function createComposeTaskflowTool(): ToolDefinition | null {
       })
 
       const payload: Record<string, unknown> = {
-        ...buildApplyDraftAction(draft, ctx, TASKFLOW_MESSAGE_KEY.toolCompose),
+        ...buildApplyDraftAction(draft, ctx, TASKFLOW_TOOL_KEY.compose),
         assistantText: buildAssistantText(roots, notes),
       }
       if (notes.missing.length > 0) {

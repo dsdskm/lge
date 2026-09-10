@@ -2,6 +2,10 @@ import { parseComposeNodesFromMessage, splitClauses } from './taskflow-nl-compos
 import type { TaskSemantics } from '../../features/taskflow/service/property-tms-store.service'
 import type { TaskContentRef } from './taskflow-palette'
 
+/** clauseIndex 는 제어 노드 범위 계산용이라 기대값에서는 비교하지 않는다. */
+const composed = (...args: Parameters<typeof parseComposeNodesFromMessage>) =>
+  parseComposeNodesFromMessage(...args).nodes.map(({ clauseIndex, ...node }) => node)
+
 const RULES = {
   clauseSeparatorPhrases: [
     '해서',
@@ -65,9 +69,9 @@ describe('taskflow-nl-compose', () => {
   })
 
   it('복합 문장을 동작 순서대로 노드로 바꾼다', () => {
-    const result = parseComposeNodesFromMessage(MESSAGE, TASKS, CONTENTS, RULES)
+    const nodes = composed(MESSAGE, TASKS, CONTENTS, RULES)
 
-    expect(result.nodes).toEqual([
+    expect(nodes).toEqual([
       { depth: 0, taskName: 'MoveTo', contentName: '도슨트 환영 장소' },
       { depth: 0, taskName: 'Tts', contentName: '1.인트로' },
       { depth: 0, taskName: 'MoveTo', contentName: '도슨트 안내 장소' },
@@ -78,23 +82,23 @@ describe('taskflow-nl-compose', () => {
   })
 
   it('"돌아오게" 처럼 Task 표현이 겹쳐도 콘텐츠 이름이 있으면 그 Task 를 쓴다', () => {
-    const result = parseComposeNodesFromMessage('도슨트 대기 장소로 돌아오게 해줘', TASKS, CONTENTS, RULES)
+    const nodes = composed('도슨트 대기 장소로 돌아오게 해줘', TASKS, CONTENTS, RULES)
 
-    expect(result.nodes).toEqual([{ depth: 0, taskName: 'MoveTo', contentName: '도슨트 대기 장소' }])
+    expect(nodes).toEqual([{ depth: 0, taskName: 'MoveTo', contentName: '도슨트 대기 장소' }])
   })
 
   it('이름 뒤 괄호 코드는 호칭에서 빠져도 같은 노드로 본다', () => {
     const contents = [content('MoveTo', '도슨트 대기(D1)', 31), content('Tts', '1', 32)]
-    const result = parseComposeNodesFromMessage('도슨트 대기 장소로 이동해줘', TASKS, contents, RULES)
+    const nodes = composed('도슨트 대기 장소로 이동해줘', TASKS, contents, RULES)
 
-    expect(result.nodes).toEqual([{ depth: 0, taskName: 'MoveTo', contentName: '도슨트 대기(D1)' }])
+    expect(nodes).toEqual([{ depth: 0, taskName: 'MoveTo', contentName: '도슨트 대기(D1)' }])
   })
 
   it('한 글자 콘텐츠 이름이 아무 문장에나 붙지 않는다', () => {
     const contents = [content('Tts', '1', 32)]
-    const result = parseComposeNodesFromMessage('도슨트 대기 장소로 이동해줘', TASKS, contents, RULES)
+    const nodes = composed('도슨트 대기 장소로 이동해줘', TASKS, contents, RULES)
 
-    expect(result.nodes).toEqual([{ depth: 0, taskName: 'MoveTo' }])
+    expect(nodes).toEqual([{ depth: 0, taskName: 'MoveTo' }])
   })
 
   it('호칭 접미어가 붙어도, 이름에 접미어가 있어도 같은 노드로 본다', () => {
@@ -105,16 +109,16 @@ describe('taskflow-nl-compose', () => {
     ]
 
     // 이름에 접미어가 없는데 사용자가 붙여 부르는 경우
-    expect(parseComposeNodesFromMessage('도슨트 대기 장소로 이동해줘', TASKS, contents, RULES).nodes).toEqual([
+    expect(composed('도슨트 대기 장소로 이동해줘', TASKS, contents, RULES)).toEqual([
       { depth: 0, taskName: 'MoveTo', contentName: '도슨트 대기(D1)' },
     ])
-    expect(parseComposeNodesFromMessage('도슨트 대기 POI로 이동해줘', TASKS, contents, RULES).nodes).toEqual([
+    expect(composed('도슨트 대기 POI로 이동해줘', TASKS, contents, RULES)).toEqual([
       { depth: 0, taskName: 'MoveTo', contentName: '도슨트 대기(D1)' },
     ])
-    expect(parseComposeNodesFromMessage('thumb_up 모션 해줘', TASKS, contents, RULES).nodes).toEqual([
+    expect(composed('thumb_up 모션 해줘', TASKS, contents, RULES)).toEqual([
       { depth: 0, taskName: 'PlayMotion', contentName: 'thumb_up' },
     ])
-    expect(parseComposeNodesFromMessage('Joy 얼굴 표시해줘', TASKS, contents, RULES).nodes).toEqual([
+    expect(composed('Joy 얼굴 표시해줘', TASKS, contents, RULES)).toEqual([
       { depth: 0, taskName: 'PlayFace', contentName: 'Joy' },
     ])
   })
@@ -122,14 +126,66 @@ describe('taskflow-nl-compose', () => {
   it('이름에 접미어가 포함돼 있으면 접미어 없이 불러도 찾는다', () => {
     const contents = [content('MoveTo', '도슨트 환영 장소', 11)]
 
-    expect(parseComposeNodesFromMessage('도슨트 환영으로 이동해줘', TASKS, contents, RULES).nodes).toEqual([
+    expect(composed('도슨트 환영으로 이동해줘', TASKS, contents, RULES)).toEqual([
       { depth: 0, taskName: 'MoveTo', contentName: '도슨트 환영 장소' },
     ])
   })
 
   it('콘텐츠를 못 찾으면 발화 표현으로 Task 만 정한다', () => {
-    const result = parseComposeNodesFromMessage('없는 장소로 이동해줘', TASKS, CONTENTS, RULES)
+    const nodes = composed('없는 장소로 이동해줘', TASKS, CONTENTS, RULES)
 
-    expect(result.nodes).toEqual([{ depth: 0, taskName: 'MoveTo' }])
+    expect(nodes).toEqual([{ depth: 0, taskName: 'MoveTo' }])
+  })
+
+  it('한 절에 이름이 여러 개면 나온 순서대로 모두 노드가 된다', () => {
+    const contents = [content('PlayMotion', 'thumb_up', 31), content('PlayFace', 'Love', 41), content('PlayFace', 'Idle', 42)]
+    const nodes = composed(
+      'thumb_up 모션 성공하면 Love 얼굴, 실패하면 Idle 얼굴 보이게 해줘',
+      TASKS,
+      contents,
+      { ...RULES, clauseSeparatorPhrases: [...RULES.clauseSeparatorPhrases, ','] },
+    )
+
+    expect(nodes).toEqual([
+      { depth: 0, taskName: 'PlayMotion', contentName: 'thumb_up' },
+      { depth: 0, taskName: 'PlayFace', contentName: 'Love' },
+      { depth: 0, taskName: 'PlayFace', contentName: 'Idle' },
+    ])
+  })
+
+  it('이름이 정확하지 않아도 같은 Task 안에서 가장 가까운 콘텐츠로 잡는다', () => {
+    const contents = [content('Tts', '1.인트로', 21), content('Tts', '작별 인사', 23)]
+    const nodes = composed('인트로 tts, 작별 인사 발화해줘', TASKS, contents, {
+      ...RULES,
+      clauseSeparatorPhrases: [...RULES.clauseSeparatorPhrases, ','],
+    })
+
+    expect(nodes).toEqual([
+      { depth: 0, taskName: 'Tts', contentName: '1.인트로' },
+      { depth: 0, taskName: 'Tts', contentName: '작별 인사' },
+    ])
+  })
+
+  it('노드 순서는 문장에 나온 순서를 따른다(조건-성공-실패)', () => {
+    const contents = [
+      content('Tts', '도슨트 안내', 24),
+      content('PlayFace', 'Joy', 43),
+      content('PlayFace', 'Shame', 44),
+    ]
+    const nodes = composed(
+      '도슨트 안내 성공하면 Joy 얼굴, 실패하면 Shame 얼굴 보이게하는 ifThenElse 노드 만들어',
+      TASKS,
+      contents,
+      { ...RULES, clauseSeparatorPhrases: [...RULES.clauseSeparatorPhrases, ','] },
+    )
+
+    expect(nodes.map((node) => node.contentName)).toEqual(['도슨트 안내', 'Joy', 'Shame'])
+  })
+
+  it('길이가 같으면 접미어를 떼어 맞춘 이름보다 그대로 맞은 이름이 이긴다', () => {
+    const contents = [content('MoveTo', '도슨트 안내 장소', 12), content('Tts', '도슨트 안내', 24)]
+    const nodes = composed('도슨트 안내 발화해줘', TASKS, contents, RULES)
+
+    expect(nodes).toEqual([{ depth: 0, taskName: 'Tts', contentName: '도슨트 안내' }])
   })
 })
