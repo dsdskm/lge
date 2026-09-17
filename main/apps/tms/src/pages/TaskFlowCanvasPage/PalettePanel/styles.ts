@@ -120,16 +120,32 @@ export const TaskName = styled.div`
   line-height: 1.5;
 `
 
-export const MoveToGrouping = styled.div`
+export const MoveToGrouping = styled.button`
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+
+  font-size: 12px;
+  line-height: 1.4;
+  color: inherit;
+  margin-top: 10px;
+  margin-bottom: 5px;
+`
+
+export const GroupingText = styled.span`
+  min-width: 0;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  font-size: 12px;
-  line-height: 1.4;
-  margin-top:10px;
-  margin-bottom:5px;
-
 `
 
 export const Chevron = styled.span<{ $open: boolean }>`

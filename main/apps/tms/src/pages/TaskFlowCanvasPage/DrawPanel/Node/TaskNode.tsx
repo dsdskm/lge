@@ -38,8 +38,8 @@ export default function TaskNode({ id, data, selected }: Props) {
   const isContentNode = typeof data?.contentId === 'number'
 
   const title = (data?.label ?? '').trim()
-  const titleFontSize = fitTitleFontSize(title.length)
   const taskName = (data?.taskName ?? '').trim()
+  const hasBadge = isContentNode && Boolean(taskName)
   const taskStatus = normalizeTaskStatus(data?.taskStatus)
   const taskStyle = execStyle[taskStatus]
 
@@ -114,7 +114,7 @@ export default function TaskNode({ id, data, selected }: Props) {
       {/* 단일 left 핸들이 입력 + 분기 출력을 겸한다: 가로=왼쪽, 세로=위 */}
       <NodeHandle type="source" position={pos.left} id={TaskH.left} isConnectableStart isConnectableEnd />
 
-      <TaskBadgeRow>{isContentNode && taskName ? <Pill tone="name">{taskName}</Pill> : null}</TaskBadgeRow>
+      <TaskBadgeRow>{hasBadge ? <Pill tone="name">{taskName}</Pill> : null}</TaskBadgeRow>
       <TaskRunningCountBadge>
         {(data?.runningCount ?? -1) > 0 ? (
           <Pill tone="name" dot={data.taskStatus === 'RUNNING'}>
@@ -123,7 +123,10 @@ export default function TaskNode({ id, data, selected }: Props) {
         ) : null}
       </TaskRunningCountBadge>
 
-      <TaskTitle style={{ color: taskStyle.text, fontSize: titleFontSize, lineHeight: 1.4 }}>
+      <TaskTitle
+        $hasBadge={hasBadge}
+        style={{ color: taskStyle.text, fontSize: fitTitleFontSize(title.length, hasBadge), lineHeight: 1.15 }}
+      >
         {title}
       </TaskTitle>
 
@@ -137,12 +140,13 @@ export default function TaskNode({ id, data, selected }: Props) {
   )
 }
 
-// 노드 폭(78px)·2줄 클램프 기준으로, 이름이 길수록 폰트를 줄여 안 잘리게 맞춘다.
-function fitTitleFontSize(len: number): number {
+// 노드 폭(78px)·3줄 클램프 기준으로, 이름이 길수록 폰트를 줄여 안 잘리게 맞춘다.
+// 상단 배지가 있으면 제목이 쓸 수 있는 높이가 줄어드는 만큼 한 단계 더 작게 잡는다.
+function fitTitleFontSize(len: number, hasBadge: boolean): number {
   if (len <= 12) return 10
-  if (len <= 20) return 9
-  if (len <= 30) return 8
-  if (len <= 42) return 7
+  if (len <= 22) return hasBadge ? 9 : 10
+  if (len <= 30) return hasBadge ? 8 : 9
+  if (len <= 46) return hasBadge ? 7 : 8
   return 6
 }
 

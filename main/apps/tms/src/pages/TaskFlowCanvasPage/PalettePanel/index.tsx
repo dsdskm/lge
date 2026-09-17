@@ -21,7 +21,8 @@ import {
   Chevron,
   NodeCard,
   CardLabel,
-  MoveToGrouping
+  MoveToGrouping,
+  GroupingText
 } from './styles'
 import { PaletteItem } from '@/types/palette'
 import { useFlowEditorStore } from '@/store/taskflow.canvas.store'
@@ -281,6 +282,7 @@ export default function PalettePanel({ groupId, siteId }: { groupId: string | nu
   )
 
   const [openMap, setOpenMap] = useState<Record<number, boolean>>({})
+  const [closedGroupMap, setClosedGroupMap] = useState<Record<string, boolean>>({})
   const [defaultOpen, setDefaultOpen] = useState(false)
   const [moveToGroupsByTask, setMoveToGroupsByTask] = useState<
     Record<number, Array<{ key: string; title: string; contents: ContentApiPayload[]; isNoLabel: boolean }>>
@@ -497,41 +499,59 @@ export default function PalettePanel({ groupId, siteId }: { groupId: string | nu
                     {open ? (
                       <ContentBlock>
 
-                        {taskGroups.map((group) => (
-                          <div key={group.key}>
-                            {group.isNoLabel ? (
-                              <MoveToGrouping>{noLabelTitle}</MoveToGrouping>
-                            ) : group.title && group.title !== task.name ? (
-                              <MoveToGrouping>{group.title}</MoveToGrouping>
-                            ) : null}
+                        {taskGroups.map((group) => {
+                          const groupTitle = group.isNoLabel
+                            ? noLabelTitle
+                            : group.title && group.title !== task.name
+                              ? group.title
+                              : null
+                          const groupOpen = groupTitle ? !closedGroupMap[group.key] : true
 
-                            <ContentGrid $compact={paletteGridCompact} $narrow={paletteGridNarrow}>
-                              {group.contents.map((content) => (
-                                <ContentNodeCard
-                                  key={content.id}
-                                  task={task}
-                                  content={content}
-                                  selected={
-                                    selectedPalette?.taskId === task.id &&
-                                    selectedPalette?.contentId === content.id
+                          return (
+                            <div key={group.key}>
+                              {groupTitle ? (
+                                <MoveToGrouping
+                                  type="button"
+                                  onClick={() =>
+                                    setClosedGroupMap((prev) => ({ ...prev, [group.key]: groupOpen }))
                                   }
-                                  onSelect={selectPalette}
-                                  onDoubleAdd={() =>
-                                    addNodeFromPalette(
-                                      {
-                                        kind: 'contentNode',
-                                        task,
-                                        content,
-                                        label: makePaletteLabel('contentNode', task, content)
-                                      },
-                                      getNextCanvasPosition()
-                                    )
-                                  }
-                                />
-                              ))}
-                            </ContentGrid>
-                          </div>
-                        ))}
+                                  title={groupTitle}
+                                >
+                                  <GroupingText>{groupTitle}</GroupingText>
+                                  <ChevronRight open={groupOpen} />
+                                </MoveToGrouping>
+                              ) : null}
+
+                              {groupOpen ? (
+                                <ContentGrid $compact={paletteGridCompact} $narrow={paletteGridNarrow}>
+                                  {group.contents.map((content) => (
+                                    <ContentNodeCard
+                                      key={content.id}
+                                      task={task}
+                                      content={content}
+                                      selected={
+                                        selectedPalette?.taskId === task.id &&
+                                        selectedPalette?.contentId === content.id
+                                      }
+                                      onSelect={selectPalette}
+                                      onDoubleAdd={() =>
+                                        addNodeFromPalette(
+                                          {
+                                            kind: 'contentNode',
+                                            task,
+                                            content,
+                                            label: makePaletteLabel('contentNode', task, content)
+                                          },
+                                          getNextCanvasPosition()
+                                        )
+                                      }
+                                    />
+                                  ))}
+                                </ContentGrid>
+                              ) : null}
+                            </div>
+                          )
+                        })}
                       </ContentBlock>
                     ) : null}
                   </div>

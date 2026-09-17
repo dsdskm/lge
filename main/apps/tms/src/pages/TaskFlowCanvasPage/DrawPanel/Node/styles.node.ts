@@ -232,7 +232,10 @@ export const CircleBadge = styled.div`
   animation: ${blink} 1s ease-in-out infinite;
 `
 
-export const TaskTitle = BaseTitle
+// 상단 배지(Pill)가 있는 노드는 제목을 배지 높이만큼 아래로 내려 겹침을 막는다.
+export const TaskTitle = styled(BaseTitle)<{ $hasBadge?: boolean }>`
+  padding-top: ${({ $hasBadge }) => ($hasBadge ? '9px' : '0')};
+`
 
 const pillBase = css`
   display: inline-flex;
