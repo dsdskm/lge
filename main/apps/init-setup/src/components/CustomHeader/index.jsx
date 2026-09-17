@@ -10,6 +10,8 @@ import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import { HEADER_GNB, getRouteGroup, FLAT_APP_ROUTES } from '@/router/routes'
+import useRobotSetupStatus from '@/hooks/useRobotSetupStatus'
+import { SETUP_MODE } from '@/utils/setupSteps'
 import SetupOrderModal from '../SetupOrderModal'
 
 // 헤더 탭은 같은 앱 안의 메뉴 그룹 전환이므로 SPA 네비게이션으로 이동한다.
@@ -81,9 +83,32 @@ const WifiButton = ({ label }) => {
   )
 }
 
+/**
+ * 단독 설치 배지. 관제 연동 설치와 메뉴 구성이 다르므로(사이트 코드 · 다운로드 · 업로드가 없다)
+ * 설치자가 "화면이 빠진 것" 이 아니라 "모드가 단독" 임을 알 수 있어야 한다.
+ * 관제 연동(기본)에서는 아무것도 그리지 않는다 — 기존 화면에 새 표시를 더하지 않는다.
+ */
+const ModeBadge = ({ label }) => (
+  <span
+    className="typographyBody3"
+    title={label}
+    style={{
+      color: 'var(--color-neutral-10)',
+      border: '1px solid var(--color-neutral-10)',
+      borderRadius: '0.4rem',
+      padding: '0.2rem 0.8rem',
+      whiteSpace: 'nowrap'
+    }}
+  >
+    {label}
+  </span>
+)
+
 const CustomHeader = ({ headerRoutes = HEADER_GNB }) => {
   const { toggleSideBar } = useSideBarStore()
   const { t } = useTranslation('route')
+  const { t: setupT } = useTranslation('setup')
+  const { mode } = useRobotSetupStatus()
 
   return (
     <StyledHeader className="header">
@@ -96,6 +121,7 @@ const CustomHeader = ({ headerRoutes = HEADER_GNB }) => {
           <GroupTabs tabs={headerRoutes} t={t} />
         </div>
         <div className="content right">
+          {mode === SETUP_MODE.STANDALONE && <ModeBadge label={setupT('installMode.standalone')} />}
           <WifiButton label={t('SideBar.gnb.network')} />
           <LanguageSelect />
         </div>

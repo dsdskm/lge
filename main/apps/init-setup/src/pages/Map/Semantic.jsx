@@ -9,7 +9,7 @@ import EmergencyKeyBadge from './EmergencyKeyBadge'
 import { NAV_STATUS_TOPICS, SPIN_STATUS_TOPICS, STATUS_TOPICS } from '@/constants/topics'
 import { resolveMapDir } from '@/utils/mapRecord'
 import { resolveMappingMode, resolveStatusLabel } from '@/utils/lioStatus'
-import { SETUP_STEPS, tryAdvanceSetupProgress } from '@/utils/setupProgress'
+import { SETUP_STEP_KEYS, tryAdvanceAfter } from '@/utils/setupProgress'
 import {
   isNavMoving,
   isSpinning,
@@ -23,6 +23,8 @@ import { MAP_FRAME, yawOf } from '@/utils/tf'
 import {
   StyledSemanticPageContent,
   BadgeRow,
+  ActionGroup,
+  StatusGroup,
   LocationRow,
   EmptyMessage,
   MapClickArea,
@@ -129,15 +131,13 @@ const Semantic = () => {
   // 좌표를 저장하면 어긋난 값이 남는다.
   const [loadedMapId, setLoadedMapId] = useState(null)
 
-  // 가상 장애물 — POI 와 같이 선택한 맵(mapId)에 매달린다.
-  // 저장은 전체 치환(full-state)이고, 로봇 반영은 맵 폴더의 vo_*.yaml 로 내보내는 별도 동작이다
-  // (아래 handleObstacleApply). 두 단계를 나눠 두는 이유는 저장이 로봇 파일을 건드리지 않아야
-  // 편집 중에 마음대로 저장할 수 있기 때문이다.
+  // 가상 장애물 — POI 와 같이 선택한 맵(mapId)에 매달린다. 저장은 전체 치환(full-state)이고,
+  // 저장 대상은 DB 까지다: 로봇이 읽는 vo_*.yaml 은 corepath 가 만들고, 관제로는 업로드 화면이
+  // POI batch 의 vo 키로 함께 올린다(아래 handleObstacleSave 뒤 주석).
   const [obstacles, setObstacles] = useState([])
   // 고를 수 있는 장애물 타입 — 로봇과 약속된 정수 enum이고 모델별로 범위가 달라 BE(meta)에서
   // 받는다. 조회 전/실패는 빈 배열이고, 그때는 추가가 잠긴다(아래 meta effect 주석 참고).
   const [obstacleTypes, setObstacleTypes] = useState([])
-  const [isApplyingObstacles, setIsApplyingObstacles] = useState(false)
 
   // 지도 클릭으로 잡은 이동 목표 — { x, y, canvasX, canvasY }. 있으면 말풍선이 뜬다.
   const [navTarget, setNavTarget] = useState(null)
@@ -646,26 +646,14 @@ const Semantic = () => {
   )
 
   /**
-   * 저장된 가상 장애물을 맵 폴더의 vo_*.yaml 로 내보낸다.
-   * corepath_nav2_plugins::VirtualObstacleLayer 가 기동 시 이 파일을 읽으므로, 반영 시점은
-   * 주행 스택 재기동이다(라이브 게시 경로가 붙기 전까지).
+   * 맵 폴더 반영(vo_*.yaml 내보내기) 버튼은 없앴다.
+   *
+   * 로봇이 읽는 워크스페이스 파일은 corepath 가 만든다. 설치 도구가 하는 일은 두 가지로 갈린다:
+   *   - DB 저장(위 handleObstacleSave) — 편집 결과의 SSOT
+   *   - 관제 업로드 — 업로드 화면이 POI batch 의 vo 키에 전체 목록을 실어 보낸다
+   *     (pages/Upload/uploadTable, utils/poiBatch)
+   * 관제에서 내려받은 맵의 장애물만 예외로 BE 가 파일까지 쓴다(init-setup-be mapSync.service).
    */
-  const handleObstacleApply = useCallback(async () => {
-    if (!mapId) {
-      toast.error(t('noMapSelected'), { autoClose: 3000 })
-      return
-    }
-    setIsApplyingObstacles(true)
-    try {
-      const res = await obstacleApi.apply({ mapId })
-      toast.success(t('obstacleApplied', { count: res?.data?.total ?? 0 }), { autoClose: 4000 })
-    } catch (error) {
-      const message = error?.response?.data?.error?.message || error?.message || 'Request failed'
-      toast.error(message, { autoClose: 4000 })
-    } finally {
-      setIsApplyingObstacles(false)
-    }
-  }, [mapId, t])
 
   const onSave = async (workingPois) => {
     const toCreatPois = []
@@ -710,11 +698,13 @@ const Semantic = () => {
     // 저장 결과를 다시 읽어(= 서버에 남은 POI) 화면을 갱신한다.
     const saved = await fetchData()
 
-    // POI 가 실제로 남아 있을 때만 시맨틱 단계를 완료로 기록한다 — 다음 작업 단계(업로드)를 가리킨다.
-    // 이 기록이 없으면 currentStep 이 시맨틱에 머물러 업로드 화면이 잠긴 채로 남는다(router/routes.jsx).
+    // POI 가 실제로 남아 있을 때만 시맨틱 단계를 완료로 기록한다 — 다음 작업 단계를 가리킨다.
+    // 다음 단계는 설치 모드에 따라 다르다(관제 연동: 업로드 / 단독: 설치 완료)이므로 이름을
+    // 직접 적지 않고 '이 단계를 끝냈다' 로 기록한다(utils/setupProgress.tryAdvanceAfter).
+    // 이 기록이 없으면 진행 단계가 시맨틱에 머물러 다음 화면이 잠긴 채로 남는다(router/routes.jsx).
     // POI 가 하나도 없는 상태로는 통과시키지 않는다.
     if (saved.length > 0) {
-      await tryAdvanceSetupProgress(SETUP_STEPS.UPLOAD)
+      await tryAdvanceAfter(SETUP_STEP_KEYS.MAP_SEMANTIC)
     }
   }
 
@@ -744,85 +734,88 @@ const Semantic = () => {
         />
 
         <BadgeRow>
-          {/* 비상정지 버튼 상태 (/emergency_key_status) — 눌려 있으면 회전/이동이 실제로 일어나지 않는다 */}
-          <EmergencyKeyBadge emergency={emergency} t={t} />
+          {/* 조작 버튼 묶음 — 맵 로드 · 회전/정지 · 이동 정지 · 장애물 반영. 상태 배지보다 먼저 두어
+              "누르는 것" 과 "보는 것" 을 시각적으로 나눈다(태블릿 폭에서는 각자 줄로 떨어진다). */}
+          <ActionGroup>
+            {/* 선택한 맵을 로봇에 로드(측위 전환) — 이동 명령의 전제다. 측위가 끝난 뒤에도 계속
+                노출한다: 다른 맵으로 갈아타는 입구가 이 버튼 하나이기 때문이다(별도의 '다른 맵 로딩'
+                단계를 두면 잘못 고른 맵을 바로잡는 길이 두 단계로 늘어난다).
+                로봇이 움직이는 중(주행/회전)에만 잠근다 — 움직이는 도중에 기준 맵이 갈리면 진행 중인
+                목표나 재정위가 어느 맵의 좌표인지 알 수 없게 된다. 먼저 정지 버튼으로 멈춰야 한다.
+                진입 시 맵을 안 물고 있으면 자동으로 한 번 걸린다(위 autoLoadedRef effect). 이 버튼은
+                자동 로드를 건너뛴 경우(상태 미수신·로드 실패)와 다른 맵으로 갈아탈 때 쓴다.
+                로드는 회전을 걸지 않는다 — GKR 재정위 회전은 아래 회전 버튼으로만 시작된다. */}
+            <Button
+              size="md"
+              onClick={() => handleLoadMap()}
+              disabled={!mapDir || isLoadingMap || isMapLoadLocked}
+              title={
+                !mapDir
+                  ? t('noMapSelected')
+                  : isMoving
+                    ? t('navMovingHint')
+                    : isSpinBusy
+                      ? t('navSpinningHint')
+                      : mapDir
+              }
+            >
+              {isLoadingMap ? t('waitingForData') : t('loadMap')}
+            </Button>
 
-          {/* 선택한 맵을 로봇에 로드(측위 전환) — 이동 명령의 전제다. 측위가 끝난 뒤에도 계속
-              노출한다: 다른 맵으로 갈아타는 입구가 이 버튼 하나이기 때문이다(별도의 '다른 맵 로딩'
-              단계를 두면 잘못 고른 맵을 바로잡는 길이 두 단계로 늘어난다).
-              로봇이 움직이는 중(주행/회전)에만 잠근다 — 움직이는 도중에 기준 맵이 갈리면 진행 중인
-              목표나 재정위가 어느 맵의 좌표인지 알 수 없게 된다. 먼저 정지 버튼으로 멈춰야 한다.
-              진입 시 맵을 안 물고 있으면 자동으로 한 번 걸린다(위 autoLoadedRef effect). 이 버튼은
-              자동 로드를 건너뛴 경우(상태 미수신·로드 실패)와 다른 맵으로 갈아탈 때 쓴다.
-              로드는 회전을 걸지 않는다 — GKR 재정위 회전은 아래 회전 버튼으로만 시작된다. */}
-          <Button
-            size="md"
-            onClick={() => handleLoadMap()}
-            disabled={!mapDir || isLoadingMap || isMapLoadLocked}
-            title={
-              !mapDir ? t('noMapSelected') : isMoving ? t('navMovingHint') : isSpinBusy ? t('navSpinningHint') : mapDir
-            }
-          >
-            {isLoadingMap ? t('waitingForData') : t('loadMap')}
-          </Button>
+            {/* 회전 버튼 — GKR 재정위 단계에서 회전을 시작하는 용도(로봇이 한 바퀴 돌아야 측위가 진행된다).
+                회전을 시작하는 경로는 이 버튼 하나다: 맵 로드나 화면 진입이 회전을 걸지는 않는다.
+                회전 중이면 어느 상태에서든 정지 버튼으로 바뀐다: ready 로 바뀐 뒤에도 회전이 남아 있을 수
+                있어서(자동 정지가 먹지 않는 경우) 손으로 멈출 길이 없으면 안 된다. */}
+            {(needsGkrSpin || isRotating) &&
+              (isRotating ? (
+                <Button size="md" theme="delete" onClick={handleStopSpin} disabled={isSendingSpin}>
+                  {t('navSpinStop')}
+                </Button>
+              ) : (
+                <Button size="md" onClick={handleSpin} disabled={isSendingSpin} title={t('navSpinHint')}>
+                  {t('navSpin')}
+                </Button>
+              ))}
 
-          {/* 회전 버튼 — GKR 재정위 단계에서 회전을 시작하는 용도(로봇이 한 바퀴 돌아야 측위가 진행된다).
-              회전을 시작하는 경로는 이 버튼 하나다: 맵 로드나 화면 진입이 회전을 걸지는 않는다.
-              회전 중이면 어느 상태에서든 정지 버튼으로 바뀐다: ready 로 바뀐 뒤에도 회전이 남아 있을 수
-              있어서(자동 정지가 먹지 않는 경우) 손으로 멈출 길이 없으면 안 된다. */}
-          {(needsGkrSpin || isRotating) &&
-            (isRotating ? (
-              <Button size="md" theme="delete" onClick={handleStopSpin} disabled={isSendingSpin}>
-                {t('navSpinStop')}
+            {/* 주행 중에만 정지 버튼을 노출한다 — nav_goto 응답으로는 종료를 알 수 없어
+                상태 토픽(goto_status.active)이 유일한 판단 근거다. */}
+            {isMoving && (
+              <Button size="md" theme="delete" onClick={handleStopGoto} disabled={isSendingGoto}>
+                {t('navStop')}
               </Button>
-            ) : (
-              <Button size="md" onClick={handleSpin} disabled={isSendingSpin} title={t('navSpinHint')}>
-                {t('navSpin')}
-              </Button>
-            ))}
+            )}
 
-          {/* 회전 진행 상태 (/robot_hub/nav_spin_status) — 회전 중이거나 GKR 단계에서만 의미가 있다 */}
-          {(needsGkrSpin || isRotating) && (
-            <MappingStatusBadge $active={isRotating}>
-              <span className="label typographyBody5">{t('navSpinStatus')}</span>
+          </ActionGroup>
+
+          {/* 상태 배지 묶음 — 비상정지 · 회전 진행 · 맵 로드/측위 · 주행. */}
+          <StatusGroup>
+            {/* 비상정지 버튼 상태 (/emergency_key_status) — 눌려 있으면 회전/이동이 실제로 일어나지 않는다 */}
+            <EmergencyKeyBadge emergency={emergency} t={t} />
+
+            {/* 회전 진행 상태 (/robot_hub/nav_spin_status) — 회전 중이거나 GKR 단계에서만 의미가 있다 */}
+            {(needsGkrSpin || isRotating) && (
+              <MappingStatusBadge $active={isRotating}>
+                <span className="label typographyBody5">{t('navSpinStatus')}</span>
+                <strong className="value typographyBody5">
+                  {summarizeSpinStatus(spinStatus, t) || t('waitingForData')}
+                </strong>
+              </MappingStatusBadge>
+            )}
+
+            {/* 맵 로드/측위 진행 상태 (/lio_node/status) */}
+            <MappingStatusBadge $active={lioStatus === 'ready'}>
+              <span className="label typographyBody5">{t('status')}</span>
+              <strong className="value typographyBody5">{resolveStatusLabel(lioStatus, t)}</strong>
+            </MappingStatusBadge>
+
+            {/* 주행 진행 상태 (/robot_hub/nav_action_status) */}
+            <MappingStatusBadge $active={isMoving}>
+              <span className="label typographyBody5">{t('navStatus')}</span>
               <strong className="value typographyBody5">
-                {summarizeSpinStatus(spinStatus, t) || t('waitingForData')}
+                {summarizeNavStatus(navStatus, t) || t('waitingForData')}
               </strong>
             </MappingStatusBadge>
-          )}
-
-          {/* 주행 중에만 정지 버튼을 노출한다 — nav_goto 응답으로는 종료를 알 수 없어
-              상태 토픽(goto_status.active)이 유일한 판단 근거다. */}
-          {isMoving && (
-            <Button size="md" theme="delete" onClick={handleStopGoto} disabled={isSendingGoto}>
-              {t('navStop')}
-            </Button>
-          )}
-
-          {/* 저장된 가상 장애물을 맵 폴더(vo_*.yaml)로 내보낸다 — 임시 저장(DB)과 나눠 둔 이유는
-              저장이 로봇 파일을 건드리지 않아야 편집 중에 마음대로 저장할 수 있기 때문이다.
-              주행 스택은 기동 시 이 파일을 읽으므로 반영 시점은 재기동이다. */}
-          <Button
-            size="md"
-            theme="secondary"
-            onClick={handleObstacleApply}
-            disabled={!mapId || isApplyingObstacles}
-            title={!mapId ? t('noMapSelected') : t('obstacleApplyHint')}
-          >
-            {isApplyingObstacles ? t('waitingForData') : t('obstacleApply')}
-          </Button>
-
-          {/* 맵 로드/측위 진행 상태 (/lio_node/status) */}
-          <MappingStatusBadge $active={lioStatus === 'ready'}>
-            <span className="label typographyBody5">{t('status')}</span>
-            <strong className="value typographyBody5">{resolveStatusLabel(lioStatus, t)}</strong>
-          </MappingStatusBadge>
-
-          {/* 주행 진행 상태 (/robot_hub/nav_action_status) */}
-          <MappingStatusBadge $active={isMoving}>
-            <span className="label typographyBody5">{t('navStatus')}</span>
-            <strong className="value typographyBody5">{summarizeNavStatus(navStatus, t) || t('waitingForData')}</strong>
-          </MappingStatusBadge>
+          </StatusGroup>
         </BadgeRow>
       </LocationRow>
 
@@ -872,7 +865,10 @@ const Semantic = () => {
             onObstacleShapeChange,
             obstacleShapeLabel,
             obstacleDrawHint,
-            obstaclePointsLabel
+            obstaclePointsLabel,
+            obstaclePolygonFinishLabel,
+            obstaclePolygonRestartLabel,
+            onCreatePoiAt
           }) => (
             <MapClickArea>
               <MapCanvas
@@ -898,6 +894,8 @@ const Semantic = () => {
                 obstacleShapeLabel={obstacleShapeLabel}
                 obstacleDrawHint={obstacleDrawHint}
                 obstaclePointsLabel={obstaclePointsLabel}
+                obstaclePolygonFinishLabel={obstaclePolygonFinishLabel}
+                obstaclePolygonRestartLabel={obstaclePolygonRestartLabel}
                 // POI 편집 화면이라 실시간 라이다 점군은 지도를 가리기만 한다
                 showScan={false}
                 onMapClick={handleMapClick}
@@ -918,14 +916,29 @@ const Semantic = () => {
                   <div className="actions">
                     {/* 주행 중에는 새 목표를 겹쳐 보내지 않는다 — 상단 정지 버튼으로 먼저 멈춘다. */}
                     <Button
-                      size="sm"
+                      size="md"
                       onClick={handleGoto}
                       disabled={isSendingGoto || isMoving}
                       title={isMoving ? t('navMovingHint') : undefined}
                     >
                       {t('moveHere')}
                     </Button>
-                    <Button size="sm" theme="tertiary" onClick={() => setNavTarget(null)}>
+                    {/* 빈 곳을 짚었을 때만 보인다 — POI 마커를 집었으면(navTarget.poi) 그 자리에는
+                        이미 POI 가 있으니 "여기에 등록" 은 뜻이 없다(이동만 의미가 있다).
+                        누르면 이 좌표를 시작 좌표로 상세(생성) 모달이 열린다(SemanticPage.handleCreateAt). */}
+                    {!navTarget.poi && onCreatePoiAt && (
+                      <Button
+                        size="md"
+                        theme="secondary"
+                        onClick={() => {
+                          onCreatePoiAt({ x: navTarget.x, y: navTarget.y })
+                          setNavTarget(null)
+                        }}
+                      >
+                        {t('createPoiHere')}
+                      </Button>
+                    )}
+                    <Button size="md" theme="tertiary" onClick={() => setNavTarget(null)}>
                       {t('close')}
                     </Button>
                   </div>

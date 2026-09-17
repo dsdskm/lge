@@ -17,7 +17,11 @@
       "scan": "スキャン",
       "semantic": "セマンティック",
       "poi": "POI",
-      "zone": "エリア"
+      "zone": "エリア",
+      "installMode": "インストールモード",
+      "localPlace": "インストール場所",
+      "finish": "インストール完了",
+      "migration": "管制連携への移行"
     }
   }
 }

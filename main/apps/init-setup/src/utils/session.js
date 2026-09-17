@@ -1,5 +1,8 @@
 import { useUserStore } from '@repo/stores'
+import { USER_ROLE_LEVEL } from '@repo/constants'
 import { validateSessionViaRobot, refreshSessionViaRobot } from '@/apis/dmApis'
+import { fetchRobotSetup } from '@/hooks/useRobotSetupStatus'
+import { SETUP_MODE, normalizeMode } from '@/utils/setupSteps'
 
 export const LOG_TAG = '[session-gate]'
 
@@ -55,6 +58,54 @@ const isInconclusiveFailure = (error) => {
 }
 
 /**
+ * 단독 설치(standalone)의 로컬 세션.
+ *
+ * 로그인은 브라우저 → (로봇 BE 경유) → 클라우드 인증이라 폐쇄망에서는 성립하지 않는다. 그런데
+ * 세션이 없으면 RootGuard/SessionGuard 가 모든 화면을 '/login' 으로 되돌리므로(아래 ensureSession
+ * 이 토큰 없음을 만료로 취급한다) 단독 설치는 시작조차 할 수 없다.
+ *
+ * 그래서 세션을 없애는 대신 로컬 세션을 만들어 넣는다 — 화면들이 session.userLevel 로 권한을
+ * 판단하고(App.jsx admin 탭) 값이 비면 그 기능만 조용히 사라지기 때문이다. accessToken 은
+ * 클라우드로 나가지 않는다(standalone 에서는 클라우드 호출 자체가 BE 에서 409 로 막힌다 —
+ * init-setup-be defaultSetup.service.assertManagedMode).
+ */
+const LOCAL_SESSION = {
+  email: 'local@robot',
+  userId: 'local-operator',
+  userRole: 'SYSTEM_ADMIN',
+  userLevel: USER_ROLE_LEVEL.SYSTEM_ADMIN,
+  accessToken: 'local-standalone-session'
+}
+
+const ensureLocalSession = () => {
+  const session = useUserStore.getState().session
+  if (session?.accessToken === LOCAL_SESSION.accessToken) return
+  console.info(`${LOG_TAG} standalone — using local session`)
+  useUserStore.getState().login({ ...LOCAL_SESSION })
+}
+
+/**
+ * 로컬 세션이 남아 있으면 비운다 — 관제 연동으로 전환할 때 쓴다(pages/Migration).
+ *
+ * 로컬 세션은 클라우드가 모르는 토큰이고 권한도 최고 레벨로 박혀 있다. 전환 뒤에는 실제 로그인으로
+ * 대체되어야 하므로, 모드를 올리는 시점에 지워 로그인 화면을 거치게 한다.
+ * @returns {boolean} 지웠는지
+ */
+export const clearLocalSession = () => {
+  const session = useUserStore.getState().session
+  if (session?.accessToken !== LOCAL_SESSION.accessToken) return false
+  lastValid = { token: null, at: 0 }
+  useUserStore.getState().logout()
+  return true
+}
+
+/** 단독 설치인지. 셋업 조회 실패는 관제 연동으로 본다(기존 동작이 기본값이다). */
+const isStandalone = async () => {
+  const setup = await fetchRobotSetup()
+  return normalizeMode(setup?.operationMode) === SETUP_MODE.STANDALONE
+}
+
+/**
  * 세션을 확인하고, 만료면 refreshToken 으로 한 번 갱신한다.
  *
  * 로그인과 같은 이유로 확인·갱신 모두 로봇 BE 를 경유한다 — 노트북/폰이 로봇 setup AP 에 붙어
@@ -63,6 +114,12 @@ const isInconclusiveFailure = (error) => {
  * @returns {Promise<'valid'|'expired'|'unknown'>}
  */
 export const ensureSession = async () => {
+  // 단독 설치는 클라우드 인증이 없다 — 로컬 세션을 채우고 그대로 통과시킨다.
+  if (await isStandalone()) {
+    ensureLocalSession()
+    return SESSION_STATE.VALID
+  }
+
   const session = useUserStore.getState().session
   const { accessToken, refreshToken, userId } = session || {}
 

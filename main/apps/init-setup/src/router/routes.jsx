@@ -1,20 +1,25 @@
-import { Navigate } from 'react-router-dom'
 import Map from '@/pages/Map'
 import Semantic from '@/pages/Map/Semantic'
 import Language from '@/pages/Default/Language'
 import Network from '@/pages/Default/Network'
+import InstallMode from '@/pages/Default/InstallMode'
 import SiteCode from '@/pages/Default/SiteCode'
 import RobotInfo from '@/pages/Default/RobotInfo'
 import Location from '@/pages/Default/Location'
+import LocalPlace from '@/pages/Default/LocalPlace'
 import Terms from '@/pages/Default/Terms'
 import Download from '@/pages/Download'
 import Upload from '@/pages/Upload'
+import Finish from '@/pages/Finish'
+import Migration from '@/pages/Migration'
 import Login from '@/pages/Login'
 import Admin from '@/pages/Admin'
 import Version from '@/pages/Version'
 import RootGuard from '@/components/RootGuard'
 import AdminGuard from '@/components/AdminGuard'
 import NetworkGuard from '@/components/NetworkGuard'
+import MapGroupIndex from '@/components/MapGroupIndex'
+import { SETUP_MODE, mapGroupLanding, normalizeMode, stepKeyAt, stepOrderFor } from '@/utils/setupSteps'
 // 공용 아이콘 세트(@repo/ui Icon)에 wifi 가 없어 앱 자산을 컴포넌트로 넘긴다 — GnbButton 은
 // 문자열(공용 세트 조회) 과 컴포넌트를 모두 받는다. 헤더의 Wi-Fi 아이콘과 같은 자산을 쓴다.
 import SvgWifi from '@/assets/wifi.svg'
@@ -38,12 +43,13 @@ export const SETUP_GROUP = {
   NETWORK: 'network'
 }
 
-/** 맵 설정 그룹의 첫 화면. 헤더 탭과 '/map' 리다이렉트가 같은 곳을 가리키도록 한 곳에서 정한다. */
-const MAP_GROUP_LANDING = '/download'
-
-export const HEADER_GNB = [
+/**
+ * 헤더 탭. 맵 설정 탭이 가리키는 경로가 모드에 따라 다르므로 함수로 만든다.
+ * @param {'managed'|'standalone'} [mode]
+ */
+export const headerGnbFor = (mode) => [
   { name: SETUP_GROUP.INITIAL, path: '/language', prefix: '', group: SETUP_GROUP.INITIAL },
-  { name: SETUP_GROUP.MAP, path: MAP_GROUP_LANDING, prefix: '', group: SETUP_GROUP.MAP },
+  { name: SETUP_GROUP.MAP, path: mapGroupLanding(mode), prefix: '', group: SETUP_GROUP.MAP },
   // admin 탭은 SYSTEM_MANAGER 이상만 본다 (라우트 접근 제한은 AdminGuard 가 담당).
   {
     name: SETUP_GROUP.ADMIN,
@@ -54,6 +60,12 @@ export const HEADER_GNB = [
   }
 ]
 
+/**
+ * 기본 헤더 탭(관제 연동 기준). 모드를 모르는 자리의 기본값으로만 쓴다
+ * (components/CustomHeader 의 props 기본값) — App 은 모드를 아는 headerGnbFor 를 쓴다.
+ */
+export const HEADER_GNB = headerGnbFor(SETUP_MODE.MANAGED)
+
 export const appRoutes = [
   {
     name: 'language',
@@ -62,6 +74,17 @@ export const appRoutes = [
     icon: 'language',
     group: SETUP_GROUP.INITIAL,
     element: <Language />
+  },
+  {
+    // 설치 모드 선택(관제 연동 / 단독). 이 화면에서 정한 값이 뒤 단계 목록 자체를 바꾼다
+    // (utils/setupSteps STEP_ORDER, 아래 modes 필터).
+    // 언어 다음에 두는 이유: 모드 설명을 읽어야 고를 수 있는 선택이라 언어보다 뒤여야 한다.
+    name: 'installMode',
+    path: '/install-mode',
+    prefix: '',
+    icon: 'settings',
+    group: SETUP_GROUP.INITIAL,
+    element: <InstallMode />
   },
   {
     // Wi-Fi 설정. 설치 단계(초기 설정 그룹)에서 빼고 헤더 · 로그인 화면의 Wi-Fi 아이콘으로 들어온다.
@@ -83,6 +106,7 @@ export const appRoutes = [
     prefix: '',
     icon: 'site_management',
     group: SETUP_GROUP.INITIAL,
+    modes: [SETUP_MODE.MANAGED],
     element: <SiteCode />
   },
   {
@@ -91,6 +115,7 @@ export const appRoutes = [
     prefix: '',
     icon: 'location',
     group: SETUP_GROUP.INITIAL,
+    modes: [SETUP_MODE.MANAGED],
     element: <Location />
   },
   {
@@ -99,7 +124,20 @@ export const appRoutes = [
     prefix: '',
     icon: 'robot',
     group: SETUP_GROUP.INITIAL,
+    modes: [SETUP_MODE.MANAGED],
     element: <RobotInfo />
+  },
+  {
+    // 단독 설치의 위치 계층 화면. 관제에서 건물/층/구역을 받을 수 없으므로 로컬 계층을 여기서
+    // 손본다(모드 선택 시 BE 가 만들어 둔 Local/1F/Default 를 이름 변경 · 층/구역 추가로 넓힌다).
+    // 맵은 구역 단위로 저장되므로(pages/Map) 층/구역을 추가하지 않으면 맵을 한 장만 만들 수 있다.
+    name: 'localPlace',
+    path: '/local-place',
+    prefix: '',
+    icon: 'location',
+    group: SETUP_GROUP.INITIAL,
+    modes: [SETUP_MODE.STANDALONE],
+    element: <LocalPlace />
   },
   {
     name: 'terms',
@@ -107,6 +145,7 @@ export const appRoutes = [
     prefix: '',
     icon: 'policy',
     group: SETUP_GROUP.INITIAL,
+    modes: [SETUP_MODE.MANAGED],
     // TODO: 약관 적용 시 다시 노출. 현재는 기능/라우트는 유지하고 메뉴에서만 숨긴다.
     hide: true,
     element: <Terms />
@@ -117,6 +156,7 @@ export const appRoutes = [
     prefix: '',
     icon: 'download',
     group: SETUP_GROUP.MAP,
+    modes: [SETUP_MODE.MANAGED],
     element: <Download />
   },
   {
@@ -152,7 +192,8 @@ export const appRoutes = [
     prefix: '',
     hide: true,
     hideLayout: true,
-    element: <Navigate to={MAP_GROUP_LANDING} replace />
+    // 착지점이 모드에 따라 다르므로(mapGroupLanding) 정적 Navigate 대신 모드를 읽는 컴포넌트를 쓴다.
+    element: <MapGroupIndex />
   },
   {
     name: 'login',
@@ -161,6 +202,9 @@ export const appRoutes = [
     icon: 'publish',
     hide: true,
     hideLayout: true,
+    // 단독 설치에는 로그인이 없다(클라우드 인증을 쓰지 않고 로컬 세션으로 대체한다 — utils/session).
+    // 라우트를 지우면 401 리다이렉트 같은 잔여 진입도 Router 의 catch-all 이 진행 중 단계로 돌린다.
+    modes: [SETUP_MODE.MANAGED],
     // 로그인은 브라우저 → 클라우드 직통이라 로봇이 외부 네트워크에 붙기 전에는 성공할 수 없다.
     // URL 직접 진입 · 401 인터셉터(window.location.href = '/login')로 들어오는 경우까지
     // NetworkGuard 가 /network 로 되돌린다.
@@ -176,7 +220,35 @@ export const appRoutes = [
     prefix: '',
     icon: 'publish',
     group: SETUP_GROUP.MAP,
+    modes: [SETUP_MODE.MANAGED],
     element: <Upload />
+  },
+  {
+    // 단독 설치의 마지막 단계. 업로드가 없으므로 완료 처리(robotSetup.status = 'completed')와
+    // 로컬 확정(POI 확정 + 작업본 맵 승격)을 이 화면이 맡는다 — pages/Finish 주석 참고.
+    name: 'finish',
+    path: '/finish',
+    prefix: '',
+    icon: 'publish',
+    group: SETUP_GROUP.MAP,
+    modes: [SETUP_MODE.STANDALONE],
+    element: <Finish />
+  },
+  {
+    // 단독 설치 → 관제 연동 전환. 단계(step) 목록에는 넣지 않는다 — 설치를 마친 뒤에 하는 별도
+    // 작업이고, 단계에 끼우면 진행 단계 번호가 모드별로 또 갈린다.
+    //
+    // modes 를 두지 않는 이유: 전환은 모드를 managed 로 올린 뒤에도 계속 진행되므로(맵 재매핑 ·
+    // 로컬 계층 정리) 단독 전용으로 두면 전환을 시작한 순간 화면이 사라진다.
+    // 대신 사이드바 노출은 App.jsx 가 전환 상태(hooks/useMigration)로 정한다 — 단독 설치를 거치지
+    // 않은 로봇에는 이 항목이 뜨지 않아야 한다.
+    name: 'migration',
+    path: '/migration',
+    prefix: '',
+    icon: 'site_management',
+    group: SETUP_GROUP.MAP,
+    hide: true,
+    element: <Migration />
   },
   {
     // DB 데이터 브라우저. hide: true — 사이드바 항목은 이 라우트가 아니라 스키마 목록으로 그린다.
@@ -244,22 +316,64 @@ export const flattenRoutes = (routes, rootElement = <RootGuard />) => {
 /** 라우트를 한 번만 펼쳐 재사용한다 (단계 순서 계산 · 그룹 판별 공용). */
 export const FLAT_APP_ROUTES = flattenRoutes(appRoutes)
 
-const stepRoutesOf = (group) => FLAT_APP_ROUTES.filter((route) => route.group === group && route.path)
+/**
+ * 이 라우트가 해당 설치 모드에서 쓰이는지. modes 가 없으면 모든 모드 공용이다.
+ * 메뉴·라우트 노출(App.jsx)과 단계 목록 계산이 같은 기준을 쓰도록 한 곳에 둔다.
+ */
+export const routeAllowsMode = (route, mode) => !route.modes || route.modes.includes(normalizeMode(mode))
+
+const stepRoutesOf = (group, mode) =>
+  FLAT_APP_ROUTES.filter((route) => route.group === group && route.path && routeAllowsMode(route, mode))
 
 /**
- * 설치 단계 순서. 초기 설정(언어 설정 ~ 서비스 이용약관) 다음에 맵 설정(스캔 · 시맨틱 · 업로드)이 온다.
- * robotSetup.currentStep 은 이 목록의 1-based 위치로 해석한다 — 그룹별로 진행 상태를 따로 저장하는
- * 필드가 없으므로 전체를 하나의 위저드 순서로 본다.
+ * 모드별 설치 단계 순서. 초기 설정 다음에 맵 설정이 온다.
+ * 모드마다 목록이 다르므로(단독 설치는 사이트 코드 · 다운로드 · 업로드가 없다) 모드별로 캐시한다.
  */
-export const INITIAL_STEP_ROUTES = stepRoutesOf(SETUP_GROUP.INITIAL)
-export const MAP_STEP_ROUTES = stepRoutesOf(SETUP_GROUP.MAP)
-export const SETUP_STEP_ROUTES = [...INITIAL_STEP_ROUTES, ...MAP_STEP_ROUTES]
+const STEP_ROUTES_BY_MODE = Object.fromEntries(
+  Object.values(SETUP_MODE).map((mode) => {
+    const initial = stepRoutesOf(SETUP_GROUP.INITIAL, mode)
+    const map = stepRoutesOf(SETUP_GROUP.MAP, mode)
+    return [mode, { initial, map, all: [...initial, ...map] }]
+  })
+)
+
+// 단계 순서는 여기(라우트 나열 순서)와 utils/setupSteps(STEP_ORDER) 두 곳에 있다 — 서로를 직접
+// 참조하면 순환 import 가 되어(routes → pages → setupProgress → setupSteps) 값을 각자 갖는다.
+// 어긋나면 저장되는 단계 번호와 화면 순서가 달라지므로 진입 시 한 번 비교해 경고를 남긴다.
+if (import.meta.env.DEV) {
+  for (const mode of Object.values(SETUP_MODE)) {
+    const fromRoutes = STEP_ROUTES_BY_MODE[mode].all.map((route) => route.name).join(',')
+    const fromKeys = stepOrderFor(mode).join(',')
+    if (fromRoutes !== fromKeys) {
+      console.warn(
+        `[routes] setup step order mismatch for '${mode}':\n  routes: ${fromRoutes}\n  keys  : ${fromKeys}`
+      )
+    }
+  }
+}
+
+/** 해당 모드의 단계 라우트 목록. */
+export const setupStepRoutes = (mode) => STEP_ROUTES_BY_MODE[normalizeMode(mode)].all
+/** 해당 모드의 맵 설정 단계 라우트 목록(맵 그룹 착지 계산용). */
+export const mapStepRoutes = (mode) => STEP_ROUTES_BY_MODE[normalizeMode(mode)].map
 
 const NO_LOCKED_PATHS = new Set()
 
 /**
- * 단계 진행 상태. currentStep 까지는 열려 있고(=이미 지난 단계로 되돌아가기 허용) 그 뒤는 잠긴다.
- * @param {object|null} setup robotSetup 레코드
+ * 저장된 진행 상태를 그 모드의 단계 목록 위치(0-based)로 읽는다.
+ * currentStepKey(이름)가 정본이고, 없으면(구버전 레코드) currentStep(숫자)으로 되돌려 읽는다.
+ * 둘 다 없거나 그 모드에 없는 단계면 첫 단계로 본다 — 뒤 단계를 건너뛰게 만드는 것보다 안전하다.
+ */
+const stepIndexOf = (setup, steps) => {
+  const mode = normalizeMode(setup?.operationMode)
+  const key = setup?.currentStepKey || stepKeyAt(mode, setup?.currentStep)
+  const index = steps.findIndex((route) => route.name === key)
+  return index >= 0 ? index : 0
+}
+
+/**
+ * 단계 진행 상태. 진행 중인 단계까지는 열려 있고(=이미 지난 단계로 되돌아가기 허용) 그 뒤는 잠긴다.
+ * @param {object|null} setup robotSetup 레코드 (operationMode · currentStepKey 를 읽는다)
  * @param {{completed?: boolean, enforce?: boolean}} [options]
  *   completed: 셋업 완료(전부 허용) / enforce: false 면 순서 강제를 끈다
  * @returns {{ pendingStep: object|null, lockedPaths: Set<string> }}
@@ -269,30 +383,27 @@ export const getSetupProgress = (setup, { completed = false, enforce = true } = 
   if (completed || !enforce) {
     return { pendingStep: null, lockedPaths: NO_LOCKED_PATHS }
   }
-  const step = Number(setup?.currentStep)
-  // 값이 없으면 첫 단계만 열어 둔다.
-  const unlockedCount = Number.isFinite(step) && step > 0 ? Math.min(step, SETUP_STEP_ROUTES.length) : 1
+  const steps = setupStepRoutes(setup?.operationMode)
+  const index = stepIndexOf(setup, steps)
   return {
-    pendingStep: SETUP_STEP_ROUTES[unlockedCount - 1] || SETUP_STEP_ROUTES[0],
-    lockedPaths: new Set(SETUP_STEP_ROUTES.slice(unlockedCount).map((route) => route.path))
+    pendingStep: steps[index] || steps[0],
+    lockedPaths: new Set(steps.slice(index + 1).map((route) => route.path))
   }
 }
 
 /**
- * 앱 진입 시 착지할 경로. 저장된 robotSetup.currentStep 을 SETUP_STEP_ROUTES 의 1-based 위치로
- * 해석해 '지금 작업 중인 단계' 화면으로 바로 보낸다.
+ * 앱 진입 시 착지할 경로. 저장된 진행 단계(currentStepKey)의 화면으로 바로 보낸다.
  * - 셋업 완료: 초기 설정 그룹이 제거되므로 맵 설정 첫 화면
- * - currentStep 없음/비정상: 첫 단계 (뒤 단계를 건너뛰게 만드는 것보다 안전하다)
+ * - 진행 단계 없음/비정상: 첫 단계
  * 순서 강제(enforce) 여부와 무관하게 같은 경로를 쓴다 — 강제를 꺼도 진행 중 단계에서 이어받는 게 맞다.
  * @param {object|null} setup robotSetup 레코드
  * @param {{completed?: boolean}} [options]
  * @returns {string|undefined}
  */
 export const getSetupLandingPath = (setup, { completed = false } = {}) => {
-  if (completed) return MAP_STEP_ROUTES[0]?.path
-  const step = Number(setup?.currentStep)
-  const index = Number.isFinite(step) && step > 0 ? Math.min(step, SETUP_STEP_ROUTES.length) - 1 : 0
-  return SETUP_STEP_ROUTES[index]?.path
+  if (completed) return mapStepRoutes(setup?.operationMode)[0]?.path
+  const steps = setupStepRoutes(setup?.operationMode)
+  return steps[stepIndexOf(setup, steps)]?.path
 }
 
 /** pathname 이 속한 그룹을 찾는다 (플랫하게 펼친 라우트 기준). */

@@ -17,7 +17,11 @@
       "scan": "Scan",
       "semantic": "Semantic",
       "poi": "POI",
-      "zone": "Zone"
+      "zone": "Zone",
+      "installMode": "Installation mode",
+      "localPlace": "Installation place",
+      "finish": "Finish",
+      "migration": "Migrate to managed"
     }
   }
 }

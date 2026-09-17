@@ -705,3 +705,90 @@ export const StyledAiAssistantContextBadge = styled.div`
 /* ─── Unused legacy exports ───────────────────────────────────── */
 export const StyledAiAssistantPanelIntro = styled.p``
 export const StyledAiAssistantComposerActions = styled.div``
+
+// 임시 회귀 테스트 버튼의 글자. (1/12) 처럼 다음 순번이 보이고, 실행 중에는 정지 색이 된다.
+export const StyledAiTestLabel = styled.span`
+  padding: 0 0.4rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: ${({ $running }) => ($running ? '#be123c' : '#475569')};
+`
+
+/* ─── 회귀 테스트 문장 목록(임시) ─────────────────────────────── */
+export const StyledAiTestListOverlay = styled.div`
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(18, 24, 40, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+`
+
+export const StyledAiTestListPanel = styled.div`
+  width: min(72rem, 100%);
+  max-height: 100%;
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(18, 24, 40, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+`
+
+export const StyledAiTestListHeader = styled.header`
+  padding: 1.4rem 1.6rem;
+  border-bottom: 1px solid var(--alpha-black-10);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+
+  strong {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--color-secondary-90, #262f44);
+  }
+`
+
+export const StyledAiTestListBody = styled.div`
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.8rem 0;
+`
+
+export const StyledAiTestListRow = styled.button`
+  width: 100%;
+  padding: 1rem 1.6rem;
+  border: 0;
+  border-left: 3px solid ${({ $current }) => ($current ? '#BF2D59' : 'transparent')};
+  background: ${({ $current }) => ($current ? '#fff1f2' : 'transparent')};
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+
+  &:hover {
+    background: var(--color-secondary-10, #f4f5f7);
+  }
+`
+
+export const StyledAiTestListTitle = styled.span`
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-secondary-90, #262f44);
+`
+
+export const StyledAiTestListText = styled.span`
+  font-size: 1.2rem;
+  line-height: 1.5;
+  color: var(--color-secondary-70, #525b70);
+  white-space: pre-wrap;
+  word-break: break-word;
+`

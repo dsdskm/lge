@@ -3,7 +3,8 @@
     "version": "Version",
     "gnb": {
       "taskflows": "Task Flow 목록",
-      "robots": "로봇 목록"
+      "robots": "로봇 목록",
+      "actions": "Task 관리"
     }
   }
 }

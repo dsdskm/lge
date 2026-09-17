@@ -35,12 +35,25 @@ const poseFieldsFrom = (robotPose) => {
 /**
  * @param {object|null} [robotPose] 로봇 현재 위치 { x, y, yaw(rad), z? } — 지도와 같은 프레임이어야 한다.
  *   주입한 쪽이 프레임을 확인해서 넘긴다(init-setup 은 map 프레임일 때만 넘긴다).
- *   있으면 Position 에 '현재 위치로 설정' 버튼이 열리고, 새 POI 는 이 좌표로 시작한다.
+ *   있으면 Position 에 '현재 위치로 설정' 버튼이 열리고, initialPose 가 없으면 새 POI 는 이 좌표로
+ *   시작한다.
+ * @param {object|null} [initialPose] 지도에서 직접 찍은 좌표 { x, y, yaw(rad)? } — robotPose 와 같은
+ *   프레임이어야 한다. 있으면 새 POI 는 로봇 현재 위치 대신 이 좌표로 시작한다(사용자가 지도에서
+ *   짚은 지점이 로봇 위치보다 우선한다). '현재 위치로 설정' 버튼은 그대로 robotPose 를 쓴다 —
+ *   지도에서 찍은 뒤에도 로봇 위치로 바꿔 넣을 수 있어야 한다.
  */
 /** 이름 입력 칸들 — 기본 / 영문 / 한글. 하나라도 채워져야 저장할 수 있다(아래 hasAnyName). */
 const NAME_LANGS = ['default', 'en-US', 'ko-KR']
 
-const SemanticDetail = ({ row, readOnly = false, robotPose = null, onPoiCreated, onPoiEdited, onPoiCancel }) => {
+const SemanticDetail = ({
+  row,
+  readOnly = false,
+  robotPose = null,
+  initialPose = null,
+  onPoiCreated,
+  onPoiEdited,
+  onPoiCancel
+}) => {
   // POI 타입은 BE 에 저장되는 값이므로 번역하지 않는다(표시 문자열이 곧 저장 값이다).
   const POI_TYPES = ['GENERAL', 'CHARGING']
 
@@ -189,10 +202,11 @@ const SemanticDetail = ({ row, readOnly = false, robotPose = null, onPoiCreated,
       tempObj.name['default'] = ''
       tempObj.name['ko-KR'] = ''
       tempObj.name['en-US'] = ''
-      // 새 POI 는 로봇이 지금 서 있는 자리에서 시작한다 — 원하는 지점에 로봇을 세워 두고
-      // 생성을 누르는 것이 실제 사용 흐름이라, 좌표를 손으로 넣게 하는 것보다 정확하다.
-      // 현재 위치를 아직 못 받았으면(robotPose null) 원점에서 시작하고 손으로 채운다.
-      const poseFields = robotPose ? poseFieldsFrom(robotPose) : null
+      // 새 POI 는 지도에서 직접 짚은 자리(initialPose)가 있으면 그 좌표로, 없으면 로봇이 지금
+      // 서 있는 자리(robotPose)로 시작한다 — 지도를 짚어 여기에 POI 를 두겠다고 정한 지점이
+      // 로봇의 지금 위치보다 우선한다. 둘 다 없으면 원점에서 시작하고 손으로 채운다.
+      const poseSource = initialPose ?? robotPose
+      const poseFields = poseSource ? poseFieldsFrom(poseSource) : null
       tempObj.pose = {}
       tempObj.pose.position = {
         x: 0.0,

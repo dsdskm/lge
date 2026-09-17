@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react'
-import { Dropdown } from '@repo/ui'
+import { Button, Dropdown } from '@repo/ui'
 import { FOOTPRINT_TOPICS, SPATIAL_TOPICS, subscribedTopicOf } from '@/constants/topics'
 import { transformPoint } from '@/utils/tf'
 import {
@@ -25,6 +25,13 @@ const ZOOM_STEP = 1.1 // 휠 한 칸당 배율
 const KEEP_VISIBLE = 0.3 // 팬 시 지도가 뷰포트와 최소로 겹쳐야 하는 비율
 // 클릭으로 인정하는 이동 허용치(px) — 이보다 움직이면 팬(드래그)으로 본다.
 const CLICK_SLOP = 4
+// 터치 포인터의 판정 반경/허용치 배율 — 손가락은 마우스 포인터보다 굵고 흔들려서, 마우스 기준
+// 반경 그대로면 태블릿에서 POI/손잡이/폴리곤 닫기 판정을 자꾸 놓친다.
+const TOUCH_HIT_SCALE = 1.6
+// 터치 더블탭 판정 — 이 시간(ms)·거리(px) 안에 두 번째 탭이 오면 더블클릭(전체보기)과 같게 본다.
+// 터치는 dblclick 이벤트가 신뢰성 있게 오지 않으므로 직접 판정한다.
+const DOUBLE_TAP_MS = 320
+const DOUBLE_TAP_SLOP_PX = 24
 // footprint 토픽(nav2 costmap)이 없을 때 로봇 마커에 쓰는 반경(m).
 // 격자 칸 수가 아니라 미터로 잡아야 지도 해상도가 달라져도 실제 크기로 보인다.
 // nav2 의 robot_radius 는 corepath 이미지 안 파라미터라 저장소에서 읽을 수 없어 대략치다 —
@@ -305,6 +312,10 @@ const poiColorsOf = (type, isDeleted) => {
  * @param {string} [obstacleShapeLabel] 형태 드롭다운 라벨.
  * @param {string} [obstacleDrawHint] 그리기 중 지도 위에 띄울 안내 문구(형태별).
  * @param {string} [obstaclePointsLabel] 찍은 좌표 목록의 제목.
+ * @param {string} [obstaclePolygonFinishLabel] 폴리곤 완료 버튼 라벨 — 터치에는 우클릭/Enter/첫 점
+ *   재클릭이 없어 같은 동작(commitPolygonDraft)을 누를 수 있는 버튼으로 노출한다.
+ * @param {string} [obstaclePolygonRestartLabel] 폴리곤 다시 찍기 버튼 라벨 — 터치에는 Esc 가 없어
+ *   같은 동작(cancelPolygonDraft)을 누를 수 있는 버튼으로 노출한다.
  */
 function MapCanvas({
   mapData,
@@ -335,7 +346,11 @@ function MapCanvas({
   onObstacleShapeChange = null,
   obstacleShapeLabel = '',
   obstacleDrawHint = '',
-  obstaclePointsLabel = ''
+  obstaclePointsLabel = '',
+  // 폴리곤 그리기 중 지도 위 완료/다시 찍기 버튼 라벨 — 손가락으로는 우클릭/Enter/Esc 를 쓸 수
+  // 없어 같은 동작(commitPolygonDraft/cancelPolygonDraft)을 누를 수 있는 버튼으로도 노출한다.
+  obstaclePolygonFinishLabel = '',
+  obstaclePolygonRestartLabel = ''
 }) {
   const canvasRef = useRef(null)
   const wrapperRef = useRef(null)
@@ -353,6 +368,15 @@ function MapCanvas({
   // 격자 크기 캐시 — 휠/드래그 핸들러가 render 없이도 클램프할 수 있게 한다
   const gridSizeRef = useRef({ w: 0, h: 0 })
   const dragRef = useRef(null)
+  // 지금 눌려 있는 터치 포인터들 — pointerId → 캔버스(뷰포트) 기준 클라이언트 좌표.
+  // 두 개가 되는 순간 핀치줌으로 전환한다(아래 handlePointerDown/Move 참고). 마우스는 동시에
+  // 하나뿐이라 추적하지 않는다.
+  const touchPointersRef = useRef(new Map())
+  // 핀치 진행 중 "직전 프레임"의 두 손가락 거리/중점 — 매 프레임 이 값과 비교해 배율·이동량을
+  // 구한다(시작 시점 기준이 아니라 직전 프레임 기준이라야 팬과 줌이 함께 자연스럽게 붙는다).
+  const pinchRef = useRef(null)
+  // 터치 더블탭 판정에 쓰는 마지막 탭의 시각/좌표 — { time, x, y } 또는 null.
+  const lastTapRef = useRef(null)
   // 최신 render 를 이벤트 핸들러에서 호출하기 위한 ref
   const renderRef = useRef(() => {})
 
@@ -439,6 +463,33 @@ function MapCanvas({
     const keepY = Math.min(mapH, canvas.height) * KEEP_VISIBLE
     view.tx = Math.min(Math.max(view.tx, keepX - mapW), canvas.width - keepX)
     view.ty = Math.min(Math.max(view.ty, keepY - mapH), canvas.height - keepY)
+  }, [])
+
+  /**
+   * 찍고 있는 폴리곤을 확정해 올려보낸다(Enter/우클릭/첫 점 재클릭과 같은 동작).
+   * 점이 모자라면 아무 일도 하지 않는다.
+   *
+   * 컴포넌트 스코프에 둔다 — 지도 위 조작 줄의 "완료" 버튼(터치에는 Enter/우클릭이 없다)과
+   * 아래 포인터 이벤트 effect 가 같은 함수를 쓴다.
+   */
+  const commitPolygonDraft = useCallback(() => {
+    const points = polygonDraftRef.current?.points ?? []
+    if (points.length < OBSTACLE_POLYGON_MIN_POINTS) return
+    polygonDraftRef.current = null
+    setObstacleDraftPoints([])
+    renderRef.current()
+    onObstacleDrawnRef.current?.(shapeFromWorldPoints(OBSTACLE_SHAPE_POLYGON, points))
+  }, [])
+
+  /**
+   * 찍던 폴리곤 점을 모두 버린다(Esc 와 같은 동작, 모드는 유지한다).
+   * 조작 줄의 "다시 찍기" 버튼과 아래 포인터 이벤트 effect 가 같은 함수를 쓴다.
+   */
+  const cancelPolygonDraft = useCallback(() => {
+    if (!polygonDraftRef.current) return
+    polygonDraftRef.current = null
+    setObstacleDraftPoints([])
+    renderRef.current()
   }, [])
 
   // mapData가 업데이트되면 백그라운드 캐시 캔버스에 지도를 미리 그림 (Double Buffering)
@@ -1312,24 +1363,23 @@ function MapCanvas({
      */
     const isOverlayEvent = (e) => !!e.target?.closest?.('[data-obstacle-overlay]')
 
-    /** 캔버스 좌표에서 잡을 수 있는 꼭지점 손잡이 — 판정 반경 안에서 가장 가까운 하나. */
-    const obstacleHandleAt = (point) =>
+    /**
+     * 캔버스 좌표에서 잡을 수 있는 꼭지점 손잡이 — 판정 반경 안에서 가장 가까운 하나.
+     * scale 은 터치 포인터의 굵은 판정 반경(TOUCH_HIT_SCALE) 적용용이다.
+     */
+    const obstacleHandleAt = (point, scale = 1) =>
       obstacleHandlesRef.current.reduce((best, candidate) => {
         const distance = Math.hypot(candidate.px - point.x, candidate.py - point.y)
-        const hitPx = candidate.rotate ? OBSTACLE_ROTATE_HANDLE_HIT_PX : OBSTACLE_HANDLE_HIT_PX
+        const hitPx = (candidate.rotate ? OBSTACLE_ROTATE_HANDLE_HIT_PX : OBSTACLE_HANDLE_HIT_PX) * scale
         if (distance > hitPx) return best
         return !best || distance < best.distance ? { ...candidate, distance } : best
       }, null)
 
-    /** 찍고 있는 폴리곤을 확정해 올려보낸다. 점이 모자라면 아무 일도 하지 않는다. */
-    const commitPolygonDraft = () => {
-      const points = polygonDraftRef.current?.points ?? []
-      if (points.length < OBSTACLE_POLYGON_MIN_POINTS) return
-      polygonDraftRef.current = null
-      setObstacleDraftPoints([])
-      renderRef.current()
-      onObstacleDrawnRef.current?.(shapeFromWorldPoints(OBSTACLE_SHAPE_POLYGON, points))
-    }
+    /** 이벤트를 일으킨 포인터가 터치인지 — 판정 반경 확대(TOUCH_HIT_SCALE) 여부를 가른다. */
+    const hitScaleOf = (e) => (e.pointerType === 'touch' ? TOUCH_HIT_SCALE : 1)
+
+    // 폴리곤 확정/취소는 컴포넌트 스코프의 commitPolygonDraft/cancelPolygonDraft 를 그대로 쓴다
+    // (지도 위 조작 줄의 완료/다시 찍기 버튼과 같은 함수라야 동작이 어긋나지 않는다).
 
     /**
      * 조작 줄에 보여줄 좌표 갱신 — 소수 둘째 자리(표시 자리수)에서 값이 실제로 바뀔 때만
@@ -1341,13 +1391,46 @@ function MapCanvas({
       setObstacleDraftPoints((prev) => (key(prev) === key(points) ? prev : points))
     }
 
-    const handleMouseDown = (e) => {
-      if (e.button !== 0) return
+    const handlePointerDown = (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return
       // 조작 줄(형태 드롭다운)을 누른 것이면 지도 조작이 아니다.
       if (isOverlayEvent(e)) return
+
+      if (e.pointerType === 'touch') {
+        touchPointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+        // 두 번째 손가락이 닿으면 핀치줌으로 전환한다 — 진행 중이던 팬/그리기(첫 손가락)는
+        // 버린다. 핀치와 도형 그리기가 같은 손가락 제스처로 섞이면 안 되기 때문이다.
+        if (touchPointersRef.current.size === 2) {
+          dragRef.current = null
+          obstacleDraftRef.current = null
+          setObstacleDraftPoints([])
+          renderRef.current()
+          const points = [...touchPointersRef.current.values()]
+          pinchRef.current = {
+            distance: Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y),
+            midX: (points[0].x + points[1].x) / 2,
+            midY: (points[0].y + points[1].y) / 2
+          }
+          try {
+            wrapper.setPointerCapture(e.pointerId)
+          } catch {
+            // 이미 해제됐거나 다른 포인터가 물고 있어도 핀치 추적 자체는 계속된다.
+          }
+          return
+        }
+        // 세 손가락 이상은 무시한다(핀치/팬 어느 쪽으로도 해석하지 않는다).
+        if (touchPointersRef.current.size > 2) return
+      }
+
       e.preventDefault()
-      // 사각형/선분 그리기 모드에서는 같은 좌클릭 드래그가 팬 대신 도형 그리기가 된다.
-      // 점은 클릭 한 번, 폴리곤은 클릭마다 점 추가이므로(handleMouseUp) 여기서는 평소의
+      try {
+        wrapper.setPointerCapture(e.pointerId)
+      } catch {
+        // 캡처를 지원하지 않는 환경(구형 브라우저)에서도 나머지 로직은 그대로 동작한다.
+      }
+
+      // 사각형/선분 그리기 모드에서는 같은 포인터 드래그가 팬 대신 도형 그리기가 된다.
+      // 점은 클릭 한 번, 폴리곤은 클릭마다 점 추가이므로(handlePointerUp) 여기서는 평소의
       // 팬/클릭 경로를 그대로 탄다.
       if (OBSTACLE_DRAG_SHAPES.includes(drawObstacleShapeRef.current)) {
         const point = canvasPointOf(e)
@@ -1367,7 +1450,7 @@ function MapCanvas({
       // 평소처럼 팬이므로 편집 중에도 지도를 옮겨 가며 고칠 수 있다.
       if (obstacleHandlesRef.current.length > 0) {
         const point = canvasPointOf(e)
-        const handleHit = obstacleHandleAt(point)
+        const handleHit = obstacleHandleAt(point, hitScaleOf(e))
         if (handleHit?.rotate) {
           obstacleRotateRef.current = {
             id: handleHit.id,
@@ -1385,11 +1468,44 @@ function MapCanvas({
         }
       }
       // startX/Y 는 클릭 판정(이동 거리)과 말풍선 위치 계산에 쓰므로 드래그 중에도 유지한다.
-      dragRef.current = { x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY, moved: false }
+      // isTouch 는 클릭 허용치(CLICK_SLOP) 를 얼마나 넉넉히 볼지 판단하는 데 쓴다.
+      dragRef.current = {
+        x: e.clientX,
+        y: e.clientY,
+        startX: e.clientX,
+        startY: e.clientY,
+        moved: false,
+        isTouch: e.pointerType === 'touch'
+      }
       wrapper.style.cursor = 'grabbing'
     }
 
-    const handleMouseMove = (e) => {
+    const handlePointerMove = (e) => {
+      // 핀치줌 진행 중 — 두 손가락의 최신 좌표를 기록하고, 직전 프레임과 비교해 배율(거리 비)과
+      // 중점 이동량(팬)을 함께 적용한다. 시작 시점 기준이 아니라 직전 프레임 기준으로 누적해야
+      // 두 손가락을 벌리며 동시에 옮기는 자연스러운 제스처가 그대로 반영된다.
+      if (e.pointerType === 'touch' && touchPointersRef.current.has(e.pointerId)) {
+        touchPointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY })
+      }
+      if (touchPointersRef.current.size === 2 && pinchRef.current) {
+        const points = [...touchPointersRef.current.values()]
+        const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y)
+        const midX = (points[0].x + points[1].x) / 2
+        const midY = (points[0].y + points[1].y) / 2
+        const prev = pinchRef.current
+        if (prev.distance > 0 && distance > 0) {
+          const rect = (canvasRef.current ?? wrapper).getBoundingClientRect()
+          zoomAt(midX - rect.left, midY - rect.top, distance / prev.distance)
+          const view = viewRef.current
+          view.tx += midX - prev.midX
+          view.ty += midY - prev.midY
+          clampView()
+          renderRef.current()
+        }
+        pinchRef.current = { distance, midX, midY }
+        return
+      }
+
       const draft = obstacleDraftRef.current
       if (draft) {
         const point = canvasPointOf(e)
@@ -1467,7 +1583,7 @@ function MapCanvas({
         }
         // 편집 중인 꼭지점/회전 손잡이 위에서는 커서로 잡을 수 있음을 알린다.
         if (obstacleHandlesRef.current.length > 0 && !drawObstacleShapeRef.current) {
-          const hit = obstacleHandleAt(canvasPointOf(e))
+          const hit = obstacleHandleAt(canvasPointOf(e), hitScaleOf(e))
           wrapper.style.cursor = hit?.rotate ? 'grab' : hit ? 'nwse-resize' : 'grab'
         }
         return
@@ -1475,15 +1591,44 @@ function MapCanvas({
       const view = viewRef.current
       view.tx += e.clientX - drag.x
       view.ty += e.clientY - drag.y
-      const moved =
-        drag.moved || Math.abs(e.clientX - drag.startX) > CLICK_SLOP || Math.abs(e.clientY - drag.startY) > CLICK_SLOP
+      // 터치는 손가락이 흔들리기 쉬워 클릭 허용치(CLICK_SLOP)를 더 넉넉히 본다 — 그대로면
+      // 제자리를 누른다고 여긴 탭도 팬으로 판정돼 POI/goto 클릭이 씹힌다.
+      const clickSlop = CLICK_SLOP * (drag.isTouch ? TOUCH_HIT_SCALE : 1)
+      const moved = drag.moved || Math.abs(e.clientX - drag.startX) > clickSlop || Math.abs(e.clientY - drag.startY) > clickSlop
       dragRef.current = { ...drag, x: e.clientX, y: e.clientY, moved }
       userAdjustedRef.current = true
       clampView()
       renderRef.current()
     }
 
-    const handleMouseUp = () => {
+    const handlePointerUp = (e) => {
+      if (e.pointerType === 'touch') {
+        touchPointersRef.current.delete(e.pointerId)
+        try {
+          wrapper.releasePointerCapture(e.pointerId)
+        } catch {
+          // 이미 해제됐으면 그대로 둔다.
+        }
+        if (touchPointersRef.current.size < 2) {
+          pinchRef.current = null
+        }
+        if (touchPointersRef.current.size === 1) {
+          // 두 손가락 중 하나를 뗐다 — 남은 손가락 위치에서 팬을 다시 시작한다(핀치 중이던
+          // 뷰를 갑자기 튀게 하지 않으려면 새 시작점을 지금 위치로 잡아야 한다).
+          // moved:true 로 두어 이 손가락을 뗄 때도 탭(POI/이동 목표)으로 오인하지 않게 한다.
+          const [remaining] = [...touchPointersRef.current.values()]
+          dragRef.current = {
+            x: remaining.x,
+            y: remaining.y,
+            startX: remaining.x,
+            startY: remaining.y,
+            moved: true,
+            isTouch: true
+          }
+          return
+        }
+      }
+
       // 가상 장애물 사각형/선분 확정 — 드래그를 놓은 시점의 두 점을 월드 좌표로 바꿔 올려보낸다.
       const draft = obstacleDraftRef.current
       if (draft) {
@@ -1544,6 +1689,27 @@ function MapCanvas({
       const canvasX = drag.startX - rect.left
       const canvasY = drag.startY - rect.top
 
+      // 터치 더블탭 → 전체보기(마우스 더블클릭과 같은 동작). 더블클릭 이벤트는 터치에서 잘
+      // 일어나지 않으므로 탭 시각·좌표를 직접 비교해 판정한다. 그리기 중에는 판정하지 않는다
+      // — 그때 탭은 점 찍기/영역 지정이라 두 번째 탭이 전체보기로 새치기하면 안 된다.
+      if (e.pointerType === 'touch' && !drawObstacleShapeRef.current) {
+        const now = Date.now()
+        const last = lastTapRef.current
+        lastTapRef.current = { time: now, x: canvasX, y: canvasY }
+        if (last && now - last.time < DOUBLE_TAP_MS && Math.hypot(canvasX - last.x, canvasY - last.y) < DOUBLE_TAP_SLOP_PX) {
+          lastTapRef.current = null
+          const canvas = canvasRef.current
+          const { w, h } = gridSizeRef.current
+          if (canvas && w && h) {
+            applyFit(canvas.width, canvas.height, w, h)
+            userAdjustedRef.current = false
+            renderRef.current()
+            onViewChangeRef.current?.()
+          }
+          return
+        }
+      }
+
       // 점(POINT) 그리기 모드 — 제자리 클릭 한 번이 곧 도형 확정이다(드래그는 평소처럼 팬).
       if (drawObstacleShapeRef.current === OBSTACLE_SHAPE_POINT) {
         const world = canvasToWorld(canvasX, canvasY)
@@ -1560,7 +1726,7 @@ function MapCanvas({
         if (
           first &&
           points.length >= OBSTACLE_POLYGON_MIN_POINTS &&
-          Math.hypot(first.px - canvasX, first.py - canvasY) <= OBSTACLE_POLYGON_CLOSE_HIT_PX
+          Math.hypot(first.px - canvasX, first.py - canvasY) <= OBSTACLE_POLYGON_CLOSE_HIT_PX * hitScaleOf(e)
         ) {
           commitPolygonDraft()
           return
@@ -1578,9 +1744,10 @@ function MapCanvas({
       if (!handler) return
 
       // 먼저 POI 를 집었는지 본다 — 겹쳐 있으면 클릭 지점에 가장 가까운 하나만 고른다.
+      const poiHitPx = POI_HIT_RADIUS_PX * hitScaleOf(e)
       const hit = poiHitsRef.current.reduce((best, candidate) => {
         const distance = Math.hypot(candidate.px - canvasX, candidate.py - canvasY)
-        if (distance > POI_HIT_RADIUS_PX) return best
+        if (distance > poiHitPx) return best
         return !best || distance < best.distance ? { ...candidate, distance } : best
       }, null)
       if (hit) {
@@ -1625,30 +1792,57 @@ function MapCanvas({
         commitPolygonDraft()
         return
       }
-      if (e.key === 'Escape' && polygonDraftRef.current) {
-        polygonDraftRef.current = null
-        setObstacleDraftPoints([])
-        renderRef.current()
+      if (e.key === 'Escape') {
+        cancelPolygonDraft()
       }
     }
 
+    /**
+     * 포인터 인터럽트(브라우저가 제스처를 가로챔 등) — pointerup 이 오지 않은 채 끝나는 경우다.
+     * 클릭/이동 판정은 하지 않고 진행 중이던 상태만 깨끗이 되돌린다 — 중단된 시점의 좌표로
+     * 도형을 확정하거나 지도 클릭을 쏘면 사용자가 의도하지 않은 동작이 나간다.
+     */
+    const handlePointerCancel = (e) => {
+      if (e.pointerType === 'touch') {
+        touchPointersRef.current.delete(e.pointerId)
+        try {
+          wrapper.releasePointerCapture(e.pointerId)
+        } catch {
+          // 이미 해제됐으면 그대로 둔다.
+        }
+      }
+      pinchRef.current = null
+      obstacleDraftRef.current = null
+      obstacleRotateRef.current = null
+      obstacleResizeRef.current = null
+      dragRef.current = null
+      setObstacleDraftPoints([])
+      wrapper.style.cursor = 'grab'
+      renderRef.current()
+    }
+
+    // 팬·줌·그리기·핀치는 모두 Pointer Events 로 통일한다 — 마우스/터치/펜을 같은 경로로 처리하고,
+    // setPointerCapture(핸들러 안에서 호출)로 포인터가 뷰포트 밖으로 나가도 이벤트를 계속 받는다
+    // (예전의 window 레벨 mousemove/mouseup 리스너가 하던 역할을 대신한다).
     wrapper.addEventListener('wheel', handleWheel, { passive: false })
-    wrapper.addEventListener('mousedown', handleMouseDown)
+    wrapper.addEventListener('pointerdown', handlePointerDown)
+    wrapper.addEventListener('pointermove', handlePointerMove)
+    wrapper.addEventListener('pointerup', handlePointerUp)
+    wrapper.addEventListener('pointercancel', handlePointerCancel)
     wrapper.addEventListener('dblclick', handleDoubleClick)
     wrapper.addEventListener('contextmenu', handleContextMenu)
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
     window.addEventListener('keydown', handleKeyDown)
     return () => {
       wrapper.removeEventListener('wheel', handleWheel)
-      wrapper.removeEventListener('mousedown', handleMouseDown)
+      wrapper.removeEventListener('pointerdown', handlePointerDown)
+      wrapper.removeEventListener('pointermove', handlePointerMove)
+      wrapper.removeEventListener('pointerup', handlePointerUp)
+      wrapper.removeEventListener('pointercancel', handlePointerCancel)
       wrapper.removeEventListener('dblclick', handleDoubleClick)
       wrapper.removeEventListener('contextmenu', handleContextMenu)
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
       window.removeEventListener('keydown', handleKeyDown)
     }
-  }, [wrapperEl, applyFit, clampView, canvasToWorld])
+  }, [wrapperEl, applyFit, clampView, canvasToWorld, commitPolygonDraft, cancelPolygonDraft])
 
   // 가상 장애물 그리기 모드/형태 전환 — 커서로 지금 지도를 끌 수 없다는 것을 보여준다.
   // 모드를 끄거나 형태를 바꾸면 그리던 것은 버린다: 확정되지 않은 도형이 화면에 남으면 안 되고,
@@ -1755,6 +1949,29 @@ function MapCanvas({
               </div>
             </ObstacleDrawPanel>
           )}
+
+          {/* 폴리곤 완료/다시 찍기 — 마우스는 우클릭/Enter/Esc 로 끝낼 수 있지만 손가락으로는 그
+              키·클릭이 없다. 같은 동작(commitPolygonDraft/cancelPolygonDraft)을 누를 수 있는
+              버튼으로도 열어 둔다. 점이 하나도 없으면(그리기 시작 전) 아무 것도 확정/취소할
+              것이 없으므로 숨긴다. */}
+          {drawObstacleShape === OBSTACLE_SHAPE_POLYGON && obstacleDraftPoints.length > 0 && (
+            <ObstacleDrawBarRow>
+              <div className="control">
+                <Button
+                  size="sm"
+                  onClick={commitPolygonDraft}
+                  disabled={obstacleDraftPoints.length < OBSTACLE_POLYGON_MIN_POINTS}
+                >
+                  {obstaclePolygonFinishLabel}
+                </Button>
+              </div>
+              <div className="control">
+                <Button size="sm" theme="tertiary" onClick={cancelPolygonDraft}>
+                  {obstaclePolygonRestartLabel}
+                </Button>
+              </div>
+            </ObstacleDrawBarRow>
+          )}
         </ObstacleDrawBar>
       )}
     </CanvasViewport>
@@ -1782,6 +1999,8 @@ const MemoizedMapCanvas = React.memo(MapCanvas, (prevProps, nextProps) => {
   if (prevProps.obstacleShapeLabel !== nextProps.obstacleShapeLabel) return false
   if (prevProps.obstacleDrawHint !== nextProps.obstacleDrawHint) return false
   if (prevProps.obstaclePointsLabel !== nextProps.obstaclePointsLabel) return false
+  if (prevProps.obstaclePolygonFinishLabel !== nextProps.obstaclePolygonFinishLabel) return false
+  if (prevProps.obstaclePolygonRestartLabel !== nextProps.obstaclePolygonRestartLabel) return false
   if (prevProps.onObstacleShapeChange !== nextProps.onObstacleShapeChange) return false
   if (prevProps.subscribedTopics !== nextProps.subscribedTopics) return false
   // 콜백은 ref 로 최신값을 쓰지만, 부모가 새 함수를 넘기면 리스너 재등록이 필요할 수 있어 함께 본다.

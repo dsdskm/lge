@@ -13,6 +13,7 @@ import {
   readTaskContents,
   findFlowTailNode,
   findClosestTaskName,
+  findContentBySharedWord,
   isConcurrentControlTask,
   readConcurrentChildTaskNames,
   resolveContentByLooseName,
@@ -181,7 +182,15 @@ function resolveStep(
       (contentName && resolveContentByLooseName(contentName, contents)
         ? undefined
         : findClosestTaskName(taskName || contentName))
-  const semantics = effectiveTaskName ? store.get(effectiveTaskName) : undefined
+  // Task 도 콘텐츠도 못 찾았으면 낱말이 겹치는 콘텐츠로 대체한다("작별 인사" -> "[부산]환영인사").
+  // 노드를 버리면 뒤 요청이 전부 어긋나므로, 대체해 놓고 무엇으로 바꿨는지 응답에 알린다.
+  const sharedWordContent =
+    !effectiveTaskName && !taskName && contentName ? findContentBySharedWord(contentName, contents) : undefined
+  const semantics = effectiveTaskName
+    ? store.get(effectiveTaskName)
+    : sharedWordContent
+      ? store.get(sharedWordContent.taskName)
+      : undefined
   if (!semantics) return null
 
   // 속성은 스키마(property_tms.compose_hint.properties)에 있는 키만 남긴다.
@@ -190,6 +199,18 @@ function resolveStep(
   // LLM 이 "3초 타임아웃" 의 값을 빠뜨리면 사용자 문장의 숫자로 채운다(단위 배수는 property_tms 가 정한다).
   const filled = fillPropertiesFromMessage(semantics, resolved.properties, [message, contentName].join(' '))
   const properties = Object.keys(filled.properties).length > 0 ? filled.properties : undefined
+
+  if (sharedWordContent) {
+    return {
+      label: sharedWordContent.contentName,
+      taskName: semantics.taskName,
+      taskType: semantics.taskType,
+      contentName: sharedWordContent.contentName,
+      contentId: sharedWordContent.contentId,
+      taskId: sharedWordContent.taskId,
+      ...(properties ? { properties } : {}),
+    }
+  }
 
   if (contentRef) {
     return {
@@ -361,6 +382,8 @@ export function createEditTaskflowTool(): ToolDefinition | null {
       const createdLabels: string[] = []
       // 요청한 대상을 못 찾아 다른 콘텐츠로 임시 채운 경우. 채팅에 그대로 노출해 바꿔야 함을 알린다.
       const placeholders: string[] = []
+      // 요청한 이름이 팔레트에 없어 가장 가까운 이름으로 바꿔 넣은 경우("Loev" -> "Love").
+      const substituted: string[] = []
       // 동시 실행 제어 노드마다 이번 호출에서 이미 붙인 자식 Task. 같은 Task 를 두 번 붙이지 않는다.
       const concurrentChildTasksByAnchor = new Map<string, string[]>()
       const duplicateConcurrent: string[] = []
@@ -568,6 +591,17 @@ export function createEditTaskflowTool(): ToolDefinition | null {
         if (step.placeholderFor) {
           placeholders.push(`${step.placeholderFor} → ${step.label}`)
         }
+        // 요청한 이름과 실제로 넣은 노드 이름이 다르면(오타 보정, 느슨한 이름 일치) 그대로 알린다.
+        // 사용자가 말한 이름이 캔버스에 없으면 왜 다른 노드가 생겼는지 알 수 없다.
+        const requestedName = operation.contentName || operation.taskName
+        if (
+          requestedName &&
+          !step.placeholderFor &&
+          toMatchKey(requestedName) !== toMatchKey(step.label) &&
+          toMatchKey(requestedName) !== toMatchKey(step.taskName ?? '')
+        ) {
+          substituted.push(`${requestedName} → ${step.label}`)
+        }
 
         if (operation.action === 'replace') {
           const replaceTargets = takeTargetNodes(operation.target, operation.all)
@@ -721,6 +755,13 @@ export function createEditTaskflowTool(): ToolDefinition | null {
       if (placeholders.length > 0) {
         lines.push(taskflowMessage(TASKFLOW_MESSAGE_KEY.editPlaceholders, { pairs: emphasize(placeholders) }))
       }
+      if (substituted.length > 0) {
+        lines.push(
+          taskflowMessage(TASKFLOW_MESSAGE_KEY.editSubstituted, {
+            pairs: emphasize(Array.from(new Set(substituted))),
+          }),
+        )
+      }
       if (duplicateConcurrent.length > 0) {
         lines.push(
           taskflowMessage(TASKFLOW_MESSAGE_KEY.editDuplicateConcurrent, { names: emphasize(duplicateConcurrent) }),
@@ -741,6 +782,9 @@ export function createEditTaskflowTool(): ToolDefinition | null {
       }
 
       const draft: Record<string, unknown> = { mode: 'edit' }
+      // 요청한 이름과 다른 노드를 넣은 사실은 draft 에도 실어 보낸다(문구 누락과 무관하게 알리기 위해).
+      const substitutionPairs = [...substituted, ...placeholders]
+      if (substitutionPairs.length > 0) draft.substitutions = substitutionPairs
       if (removeByName.length > 0) draft.removeByName = removeByName
       if (replaceByName.length > 0) draft.replaceByName = replaceByName
       if (insertAfter.length > 0) draft.insertAfter = insertAfter

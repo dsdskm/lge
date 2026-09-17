@@ -39,7 +39,7 @@ export function findClientAction(payload) {
 }
 
 /** 서버가 지시한 프론트 함수를 실행한다.
- * @returns {Promise<null | { applied: boolean, message: string }>} 지시가 없으면 null.
+ * @returns {Promise<null | { applied: boolean, message: string, notices: string[] }>} 지시가 없으면 null.
  */
 export async function runClientAction({ payload, screenKey, message, signal } = {}) {
   const action = findClientAction(payload)
@@ -69,7 +69,7 @@ export async function runClientAction({ payload, screenKey, message, signal } = 
       registered: Object.keys(CLIENT_ACTION_HANDLERS),
       hint: 'action_tool.client_function 값과 client-actions 레지스트리 키가 다르다'
     })
-    return { applied: false, message: '' }
+    return { applied: false, message: '', notices: [] }
   }
 
   const result = await handler({ args: action.args, screenKey, message, signal })

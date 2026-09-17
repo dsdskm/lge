@@ -12,6 +12,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { flattenRoutes, appRoutes, getAppPrefix } from './router/routes'
 import Router from './router/tms.router'
 import { useOrganizationStore, useThemeStore } from '@repo/stores'
+import { isDeviceProfile } from './common/profile'
+import { DeviceOrgBootstrap } from './adapters/components/deviceOrgBootstrap'
 
 const queryClient = new QueryClient()
 
@@ -61,13 +63,25 @@ function App() {
         <GlobalStyle />
         <Toast />
         <Suspense fallback={<div>{layoutT('loading')}</div>}>
-          <Router
-            allRoutes={allRoutes}
-            appPrefix={appPrefix}
-            processedAppRoutes={processedAppRoutes}
-            headerRoutes={headerRoutes}
-            appT={appT}
-          />
+          {isDeviceProfile ? (
+            <DeviceOrgBootstrap>
+              <Router
+                allRoutes={allRoutes}
+                appPrefix={appPrefix}
+                processedAppRoutes={processedAppRoutes}
+                headerRoutes={headerRoutes}
+                appT={appT}
+              />
+            </DeviceOrgBootstrap>
+          ) : (
+            <Router
+              allRoutes={allRoutes}
+              appPrefix={appPrefix}
+              processedAppRoutes={processedAppRoutes}
+              headerRoutes={headerRoutes}
+              appT={appT}
+            />
+          )}
         </Suspense>
       </QueryClientProvider>
     </>

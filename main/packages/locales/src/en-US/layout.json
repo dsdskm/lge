@@ -2,7 +2,6 @@
   "SideBar": {
     "gnb": {
       "ota": "S/W Deployment",
-      "ebme": "EBME",
       "robot": "Robot Management",
       "cms": "Contents Management",
       "tms": "TMS",

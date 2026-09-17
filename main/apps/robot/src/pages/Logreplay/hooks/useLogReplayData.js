@@ -511,8 +511,13 @@ export default function useLogReplayData({
       const last = lastPollCenterRef.current
 
       // ✅ 재생 중 소폭 backward jitter 방지: playhead 단조 증가로 clamp
+      // ⚠️ 드득드득(떨림) 방지: backJitterThresh가 너무 작으면(0.8) 실제 재생 중에도 미세한
+      //    backward가 발생할 때마다 centerAdj가 last로 고정되어 로봇이 멈췄다가 다시 움직이는
+      //    현상이 생긴다. stepEmaRef가 안정화되기 전(초기 구간)에는 jitter 방지를 비활성화하고,
+      //    안정화된 후에도 임계값을 더 크게(stepEma * 6, 최소 1.5초) 잡아 실제 재생을 방해하지 않는다.
       let centerAdj = center
-      const backJitterThresh = Math.max(0.8, (stepEmaRef.current || 0.25) * 4) // ★ 포인트
+      const stepEma = stepEmaRef.current || 0.25
+      const backJitterThresh = Math.max(1.5, stepEma * 6) // ★ 포인트
       if (Number.isFinite(last) && centerAdj < last && last - centerAdj < backJitterThresh) {
         centerAdj = last
       }

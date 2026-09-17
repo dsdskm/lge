@@ -17,7 +17,11 @@
       "scan": "스캔",
       "semantic": "시맨틱",
       "poi": "POI",
-      "zone": "구역"
+      "zone": "구역",
+      "installMode": "설치 모드",
+      "localPlace": "설치 장소",
+      "finish": "설치 완료",
+      "migration": "관제 연동 전환"
     }
   }
 }

@@ -9,7 +9,7 @@ import { useParams } from 'react-router-dom'
 
 import { StyledPageContent, Title, Tabs, Tab, Dropdown, Search, HeaderTitleGroup, Checkbox, Button } from '@repo/ui'
 import { useGetTaskFlow } from '@/api/taskFlowApis'
-import { TaskFlow } from '@/types/taskflow'
+import { ReactFlowContent, TaskFlow } from '@/types/taskflow'
 import { DeviceResponse } from '@/types/api/device'
 import useSelectInfo from './hooks/useSelectInfo'
 import { useGetLatestDeployments } from '@/api/robotDeployApis'
@@ -19,6 +19,7 @@ import useDeploy, { DeployMode } from '@/pages/hooks/useDeploy'
 import SkillIndicator from '../components/SkillIndicator'
 import { useOrgFilterValues } from '../hooks/useOrgFilter'
 import { useSite } from '@/api/siteApi'
+import { SEP } from '@/common/constants'
 
 const operationStatusOptions = [
   { value: 'all', name: 'all' },
@@ -131,6 +132,24 @@ const DeployPage = () => {
   } = useDeploy()
 
   const buildingInfo = useMemo(() => makeBuildingInfo(siteInfo?.buildings), [siteInfo])
+  const taskflowLoc = useMemo(() => {
+    const contents = (taskFlowData?.flowDefinition.contents as ReactFlowContent[]) ?? []
+    const locationSet = new Set<string>()
+
+    for (const content of contents) {
+      if (content.contentTypeName === 'POI') {
+        const jsonObj = JSON.parse(content.contentValue)
+        const bName = buildingInfo.get(jsonObj.buildingId) ?? ''
+        const fName = buildingInfo.get(jsonObj.floorId) ?? ''
+        const aName = buildingInfo.get(jsonObj.areaId) ?? ''
+
+        const locStr = `${bName}${SEP}${fName}${SEP}${aName}`
+
+        locationSet.add(locStr)
+      }
+    }
+    return [...locationSet]
+  }, [taskFlowData, buildingInfo])
 
   const robotList: RobotInfo[] = useMemo(() => {
     const targetRobots = getRobotForMode(deployMode, devicesData?.content, taskFlowData)
@@ -144,7 +163,6 @@ const DeployPage = () => {
     for (const device of targetRobots) {
       const deployStatus = makeDeployState(device.deviceId, deployInfo?.content ?? [])
       const deployable = makeDeployableInfo(deployMode, device, taskFlowData)
-      console.log('taskflow info', taskFlowData)
       robot = {
         ...toRobotInfo(device, buildingInfo),
         deployable: deployable,
@@ -360,7 +378,9 @@ const DeployPage = () => {
                 color: '#4b5563'
               }}
             >
-              <p style={{ margin: 0 }}>- {taskFlowData?.description ?? t('deploy.descPlaceholder')}</p>
+              {(taskFlowData?.description ?? '').length > 0 && (
+                <p style={{ margin: 0 }}>- {taskFlowData?.description}</p>
+              )}
               {skills.length > 0 && (
                 <p
                   style={{
@@ -381,6 +401,30 @@ const DeployPage = () => {
                       }}
                     >
                       {<SkillIndicator skill={item.name} />}
+                    </span>
+                  ))}
+                </p>
+              )}
+              {taskflowLoc.length > 0 && (
+                <p
+                  style={{
+                    margin: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  - {t('deploy.locations')}
+                  {taskflowLoc.map((item) => (
+                    <span
+                      key={item}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      {item}
                     </span>
                   ))}
                 </p>

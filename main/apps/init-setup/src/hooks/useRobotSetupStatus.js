@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { list } from '@/apis/robotSetupApis'
+import { SETUP_MODE, normalizeMode } from '@/utils/setupSteps'
 
 // 셋업 진행 상태는 앱 진입 시 한 번만 확인한다.
 // App 이 이 값 하나로 탭/사이드바/라우트 구성 · 단계 잠금 · 착지 경로(currentStep 이 가리키는
@@ -29,14 +30,30 @@ export const resetRobotSetupCache = () => {
   setupPromise = null
 }
 
-/** @returns {{ loading: boolean, completed: boolean, setup: object|null }} */
+/**
+ * @returns {{ loading: boolean, completed: boolean, mode: 'managed'|'standalone', setup: object|null }}
+ *   mode: 설치 모드. 레코드가 없거나 값이 없으면 기존 동작인 관제 연동(managed)으로 본다
+ *   (utils/setupSteps.normalizeMode) — 단독 설치로 잘못 보면 관제 화면이 사라진다.
+ */
 const useRobotSetupStatus = () => {
-  const [state, setState] = useState({ loading: true, completed: false, setup: null })
+  const [state, setState] = useState({
+    loading: true,
+    completed: false,
+    mode: SETUP_MODE.MANAGED,
+    setup: null
+  })
 
   useEffect(() => {
     let alive = true
     fetchRobotSetup().then((setup) => {
-      if (alive) setState({ loading: false, completed: setup?.status === 'completed', setup })
+      if (alive) {
+        setState({
+          loading: false,
+          completed: setup?.status === 'completed',
+          mode: normalizeMode(setup?.operationMode),
+          setup
+        })
+      }
     })
     return () => {
       alive = false

@@ -49,6 +49,7 @@ import {
   readTaskContentsFromContext,
   resolveTaskAlias,
 } from '../pipeline/tools/taskflow-palette'
+import { taskflowMessage, TASKFLOW_MESSAGE_KEY } from '../pipeline/tools/taskflow-message'
 import { getPropertyTmsStore, TASK_TYPE } from '../features/taskflow/service/property-tms-store.service'
 import { getScreenConfig } from '../pipeline/screen-registry'
 import type { ToolDefinition } from '../pipeline/tool.type'
@@ -1571,17 +1572,32 @@ export class ChatService {
     // "인트로 tts" 처럼 부른 이름을 팔레트의 실제 콘텐츠 이름으로 맞춘다. 프론트는 이 이름으로 팔레트를 찾는다.
     // 순서가 중요하다: 정확한 Task -> 팔레트 콘텐츠 -> 오타 보정.
     // 콘텐츠 이름이 Task 표현과 한 글자 차이일 수 있어("Love" vs MoveTo 의 "move") 팔레트를 먼저 본다.
+    // 요청한 이름과 다른 노드를 넣은 경우는 모아 두고 응답에 그대로 알린다.
+    const substitutedNames: string[] = []
+    const noteSubstitution = (requested: string, resolved: string) => {
+      if (!requested || !resolved) return
+      if (toMatchKey(requested) === toMatchKey(resolved)) return
+      substitutedNames.push(`${requested} → ${resolved}`)
+    }
     const resolveStepName = (value: string): string => {
-      const raw = resolveTaskAlias(String(value ?? '').trim())
+      const requested = String(value ?? '').trim()
+      const raw = resolveTaskAlias(requested)
       if (!raw || getPropertyTmsStore()?.get(raw)) return raw
 
       const content = resolveContentByLooseName(raw, paletteContents)
-      if (content) return content.contentName
+      if (content) {
+        noteSubstitution(requested, content.contentName)
+        return content.contentName
+      }
 
-      return findClosestTaskName(raw) ?? raw
+      const closest = findClosestTaskName(raw)
+      if (closest) noteSubstitution(requested, closest)
+      return closest ?? raw
     }
     // 동시 실행 제어 노드(Parallel 등)에 자식으로 붙일 때는 같은 Task 를 하나만 남긴다.
     // 얼굴 두 개, 발화 두 개를 동시에 수행할 수 없어 프론트 연결 규칙도 이를 막는다.
+    // 같은 Task 라 빼놓은 노드 이름. 왜 하나만 붙었는지 응답에서 알려야 한다.
+    const droppedConcurrentNames: string[] = []
     const attachNamesToUse =
       attachHandle === 'left' && anchorNode && isConcurrentControlTask(anchorNode.taskName ?? '')
         ? (() => {
@@ -1595,11 +1611,18 @@ export class ChatService {
                 ? resolved
                 : resolveContentByLooseName(resolved, paletteContents)?.taskName ?? ''
               const taskKey = toMatchKey(taskName)
-              if (taskKey && usedTasks.has(taskKey)) continue
+              if (taskKey && usedTasks.has(taskKey)) {
+                droppedConcurrentNames.push(resolved)
+                continue
+              }
               if (taskKey) usedTasks.add(taskKey)
               kept.push(name)
             }
-            return kept.length > 0 ? kept : attachStepNames.slice(0, 1)
+            if (kept.length > 0) return kept
+
+            droppedConcurrentNames.length = 0
+            for (const name of attachStepNames.slice(1)) droppedConcurrentNames.push(resolveStepName(name))
+            return attachStepNames.slice(0, 1)
           })()
         : attachStepNames
 
@@ -1681,6 +1704,19 @@ export class ChatService {
           )
       : `${connectionText} 연결을 캔버스에 반영했습니다.`
 
+    // 왜 요청한 대로 다 안 붙었는지 / 왜 다른 이름이 붙었는지는 응답에 반드시 남긴다. 문구는 prompt 표에서 온다.
+    const emphasizeNames = (values: string[]) =>
+      Array.from(new Set(values.filter(Boolean))).map((value) => `**${value}**`).join(', ')
+    const noticeLines = [
+      substitutedNames.length > 0
+        ? taskflowMessage(TASKFLOW_MESSAGE_KEY.editSubstituted, { pairs: emphasizeNames(substitutedNames) })
+        : '',
+      droppedConcurrentNames.length > 0
+        ? taskflowMessage(TASKFLOW_MESSAGE_KEY.editDuplicateConcurrent, { names: emphasizeNames(droppedConcurrentNames) })
+        : '',
+    ].filter(Boolean)
+    const textWithNotices = [text, ...noticeLines].join('\n')
+
     const reply: ChatReply = {
       chat_action: ruleMatch.chatAction || screen?.chatActions.action || 'action',
       chat_action_param: {
@@ -1688,7 +1724,7 @@ export class ChatService {
         matchedRuleKey: ruleMatch.ruleKey,
         canvasDraft,
       },
-      text,
+      text: textWithNotices,
     }
 
     reply.pipelineConfidence = this.normalizeRuleConfidence(ruleMatch.confidence)

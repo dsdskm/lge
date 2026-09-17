@@ -21,11 +21,11 @@ export function applyTaskflowDraft({ args, screenKey, message, signal } = {}) {
   const draft = args?.draft
   if (!draft || typeof draft !== 'object') {
     console.warn('[ai-trace] 8.canvas-apply 건너뜀 reason=draft 없음', { args })
-    return Promise.resolve({ applied: false, message: '' })
+    return Promise.resolve({ applied: false, message: '', notices: [] })
   }
   if (typeof window === 'undefined' || !isCanvasScreen(screenKey)) {
     console.warn('[ai-trace] 8.canvas-apply 건너뜀 reason=캔버스 화면이 아님', { screenKey })
-    return Promise.resolve({ applied: false, message: '' })
+    return Promise.resolve({ applied: false, message: '', notices: [] })
   }
 
   const assistantMessageId =
@@ -41,9 +41,14 @@ export function applyTaskflowDraft({ args, screenKey, message, signal } = {}) {
       clearTimeout(timeoutId)
     }
 
-    const finish = (applied, resultMessage) => {
+    // notices: 캔버스가 알려 준 부가 사실(요청과 다른 이름으로 대체된 노드 등). 응답 문구에 덧붙는다.
+    const finish = (applied, resultMessage, notices = []) => {
       cleanup()
-      resolve({ applied, message: String(resultMessage ?? '').trim() })
+      resolve({
+        applied,
+        message: String(resultMessage ?? '').trim(),
+        notices: Array.isArray(notices) ? notices.filter(Boolean).map((item) => String(item)) : []
+      })
     }
 
     const handleClarification = (event) => {
@@ -62,7 +67,7 @@ export function applyTaskflowDraft({ args, screenKey, message, signal } = {}) {
         insertedNodeCount: detail?.insertedNodeCount,
         message: detail?.message
       })
-      finish(Boolean(detail?.didApply ?? detail?.success), detail?.message)
+      finish(Boolean(detail?.didApply ?? detail?.success), detail?.message, detail?.substitutions)
     }
 
     const handleAbort = () => finish(false, '')

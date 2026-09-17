@@ -20,7 +20,7 @@ import {
   ErrorText
 } from './styles'
 import { saveSiteCode } from '@/apis/defaultSetup'
-import { advanceSetupProgress, SETUP_STEPS } from '@/utils/setupProgress'
+import { advanceSetupProgress, SETUP_STEP_KEYS } from '@/utils/setupProgress'
 
 const DEFAULT_SITE_CODE = 'GRPBCCCC'
 const SITE_CODE_RE = /^[A-Z0-9]{8}$/
@@ -44,7 +44,7 @@ const SiteCode = () => {
     setErr('')
     try {
       await saveSiteCode({ method, code: value })
-      await advanceSetupProgress(SETUP_STEPS.LOCATION)
+      await advanceSetupProgress(SETUP_STEP_KEYS.LOCATION)
       navigate('/location')
     } catch (e) {
       setErr(t('siteCode.lookupFailed', { message: e.message }))
@@ -103,7 +103,7 @@ const SiteCode = () => {
           {err && <ErrorText>{err}</ErrorText>}
 
           <WizardButtonWrap>
-            <SecondaryActionButton type="button" onClick={() => navigate('/network')} disabled={busy}>
+            <SecondaryActionButton type="button" onClick={() => navigate('/install-mode')} disabled={busy}>
               {t('common.previous')}
             </SecondaryActionButton>
             <ActionButton

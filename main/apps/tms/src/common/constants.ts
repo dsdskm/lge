@@ -23,3 +23,5 @@ export const EXECUTION_CONDITION_DEFAULT = 'Boot' as const
 // GROUP과 SITE의 '전체'에 해당하는 ID
 export const TOTAL_GROUP_ID = 'all'
 export const TOTAL_SITE_ID = 'all'
+
+export const SEP = '\u00B7'

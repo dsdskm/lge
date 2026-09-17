@@ -1,5 +1,5 @@
 import { useDeployTaskFlowAction } from '@/api/taskFlowApis'
-import { DeployActionRequest, TaskFlow } from '@/types/taskflow'
+import { DeployActionRequest, ReactFlowContent, TaskFlow } from '@/types/taskflow'
 import { SimpleRobotInfo } from '@/types/taskflow'
 import { DeployStatusType } from '@/types/RobotInfo'
 import { Content } from '@/types/api/deviceDeployment'
@@ -134,6 +134,8 @@ const useDeploy = () => {
     if (!taskFlow) return { deployable: false, reason: 'taskflow_missing' }
     if (!robot?.tms) return { deployable: false, reason: 'robot_tms_missing' }
 
+    console.log('checkDeployability', taskFlow)
+
     const capabilities = robot.tms.taskFlowState?.robotSpec?.capabilities ?? []
     const { robotSkillInfos: necessarySkill } = taskFlow
 
@@ -143,6 +145,22 @@ const useDeploy = () => {
       }
     }
 
+    const contents = taskFlow.flowDefinition.contents as ReactFlowContent[]
+
+    for (const content of contents) {
+      if (content.contentTypeName === 'POI') {
+        const jsonObj = JSON.parse(content.contentValue)
+        const robotLoc = robot.state?.sitePosition
+
+        const isBuildingDiff = robotLoc?.buildingId && robotLoc.buildingId !== jsonObj.buildingId
+        const isFloorDiff = robotLoc?.floorId && robotLoc.floorId !== jsonObj.floorId
+        const isAreaDiff = robotLoc?.areaId && robotLoc.areaId !== jsonObj.areaId
+
+        if (isBuildingDiff || isFloorDiff || isAreaDiff) {
+          return { deployable: false, reason: 'cannot go location' }
+        }
+      }
+    }
     return { deployable: true, reason: 'ok' }
   }
 

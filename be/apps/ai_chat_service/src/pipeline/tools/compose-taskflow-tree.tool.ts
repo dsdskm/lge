@@ -2,6 +2,10 @@ import type { ToolContext, ToolDefinition } from '../tool.type'
 import { getPropertyTmsStore, TASK_TYPE, type TaskSemantics } from '../../features/taskflow/service/property-tms-store.service'
 import {
   findContentRef,
+  findClosestTaskName,
+  findContentBySharedWord,
+  resolveContentByLooseName,
+  resolveTaskAlias,
   findSuggestions,
   formatNodeLabel,
   readCurrentGraph,
@@ -206,11 +210,25 @@ function buildForest(
 
     // 콘텐츠 이름이 있으면 실제 팔레트에서 찾아 Task 를 역추적하고 contentId 까지 확정한다.
     const contentRef = node.contentName ? findContentRef(node.contentName, node.taskName, contents) : undefined
+    // "인트로 tts" 처럼 Task 를 부르는 말이 섞여 있으면 그것을 떼고 팔레트에서 다시 찾는다.
+    // 그래도 없으면 낱말이 겹치는 콘텐츠로 대체한다("작별 인사" -> "[부산]환영인사").
+    // 여기서 버리면 뒤 절의 노드가 통째로 사라진다. 대체 사실은 notes.substituted 로 응답에 남는다.
+    const looseContent = !contentRef && node.contentName
+      ? resolveContentByLooseName(node.contentName, contents) ??
+        (node.taskName.length === 0 ? findContentBySharedWord(node.contentName, contents) : undefined)
+      : undefined
     // Pause/Wait/Rotate 처럼 콘텐츠가 없는 Task 는 이름 자체가 노드다. "pause 추가" 를 콘텐츠로 찾으면 실패한다.
-    const contentNameIsTask = node.contentName ? Boolean(store.get(node.contentName)) : false
+    // 별칭("타임아웃" 등)은 property_tms.trigger_phrases 에 있다.
+    const contentAsTaskName = node.contentName ? resolveTaskAlias(node.contentName) : ''
+    const contentNameIsTask = contentAsTaskName ? Boolean(store.get(contentAsTaskName)) : false
+    // 팔레트에도 Task 이름에도 없으면 마지막으로 오타를 감안한다("puase" -> Pause).
+    // 여기서 포기하면 제어 노드의 자식이 통째로 사라져 "Delay 아래에 실행할 동작이 없습니다" 로 끝난다.
     const effectiveTaskName = taskKnown
       ? node.taskName
-      : contentRef?.taskName ?? (contentNameIsTask ? node.contentName : undefined)
+      : contentRef?.taskName ??
+        looseContent?.taskName ??
+        (contentNameIsTask ? contentAsTaskName : undefined) ??
+        (node.contentName ? findClosestTaskName(node.contentName) : undefined)
     const semantics = effectiveTaskName ? store.get(effectiveTaskName) : undefined
 
     if (!semantics) {
@@ -234,12 +252,13 @@ function buildForest(
       [message, node.contentName ?? ''].join(' '),
     )
     if (Object.keys(filled.properties).length > 0) treeNode.properties = filled.properties
-    if (contentRef && node.contentName) {
-      treeNode.contentName = contentRef.contentName
-      treeNode.contentId = contentRef.contentId
+    if ((contentRef || looseContent) && node.contentName) {
+      const matched = (contentRef ?? looseContent) as TaskContentRef
+      treeNode.contentName = matched.contentName
+      treeNode.contentId = matched.contentId
 
-      if (toMatchKey(contentRef.contentName) !== toMatchKey(node.contentName)) {
-        notes.substituted.push({ requested: node.contentName, resolved: contentRef.contentName })
+      if (toMatchKey(matched.contentName) !== toMatchKey(node.contentName)) {
+        notes.substituted.push({ requested: node.contentName, resolved: matched.contentName })
       }
     } else if (semantics.taskType === TASK_TYPE.control) {
       // 제어 노드는 콘텐츠가 없다. LLM 이 "3초" 처럼 값을 contentName 에 적어 보내도 노드는 그대로 만든다.
@@ -367,20 +386,27 @@ function joinsNextClause(clause: string, phraseKey: string): boolean {
 function dropDuplicateConcurrentChildren(nodes: TaskflowTreeNode[], notes: ComposeNotes): void {
   for (const node of nodes) {
     if (isConcurrentControlTask(node.taskName)) {
-      const usedTasks = new Set<string>()
-      node.children = node.children.filter((child) => {
-        const key = toMatchKey(child.taskName)
-        if (usedTasks.has(key)) {
-          notes.duplicateConcurrent.push(formatNodeLabel(child.taskName, child.contentName) || child.taskName)
-          return false
-        }
-        usedTasks.add(key)
-        return true
-      })
+      // 바로 붙은 자식만 보면 안 된다. 자식 아래로 이어진 노드까지 이 제어 노드가 한 번에 돌리는 묶음이다.
+      pruneConcurrentSubtree(node, new Set<string>(), notes)
     }
 
     dropDuplicateConcurrentChildren(node.children, notes)
   }
+}
+
+/** 동시 실행 제어 노드 아래(자식과 그 아래 전부)에서 같은 Task 를 하나만 남긴다. */
+function pruneConcurrentSubtree(node: TaskflowTreeNode, usedTasks: Set<string>, notes: ComposeNotes): void {
+  node.children = node.children.filter((child) => {
+    const key = toMatchKey(child.taskName)
+    if (key && usedTasks.has(key)) {
+      notes.duplicateConcurrent.push(formatNodeLabel(child.taskName, child.contentName) || child.taskName)
+      return false
+    }
+    if (key) usedTasks.add(key)
+    return true
+  })
+
+  for (const child of node.children) pruneConcurrentSubtree(child, usedTasks, notes)
 }
 
 /** CONTROL 인데 자식이 없는 노드 이름을 모은다. 자식 개수 상한 같은 세부 규칙은 tms 앱이 검증한다. */
@@ -501,6 +527,8 @@ export function createComposeTaskflowTool(): ToolDefinition | null {
       // 비활성 Task 의 콘텐츠가 먼저 잡혀 역추적이 실패하지 않도록 카탈로그에 있는 Task 로 한정한다.
       const contents = readTaskContents(ctx).filter((row) => Boolean(store.get(row.taskName)))
       let nodes = toComposeNodes(args.nodes)
+      // 문장 해석 단계에서 이름을 대체한 경우. 아래 notes 에 합쳐 응답에 알린다.
+      const parseSubstituted: Array<{ requested: string; resolved: string }> = []
 
       // orchestrator 의 결정적 경로가 빈 인자로 먼저 호출한다.
       // 이때는 사용자 문장을 절 단위로 갈라 Task/콘텐츠를 직접 찾는다. 그래도 못 만들면 LLM 툴콜 경로로 넘어간다.
@@ -523,6 +551,7 @@ export function createComposeTaskflowTool(): ToolDefinition | null {
         })
 
         if (parsed.nodes.length === 0) return {}
+        parseSubstituted.push(...parsed.substituted)
 
         // 제어 노드를 지목한 문장이면 동작을 말한 순서대로 그 자식으로 넣는다.
         // NL 파서는 절을 depth 0 으로만 나열하므로 중첩은 여기서 만든다.
@@ -582,7 +611,7 @@ export function createComposeTaskflowTool(): ToolDefinition | null {
       const notes: ComposeNotes = {
         missing: [],
         unresolved: [],
-        substituted: [],
+        substituted: [...parseSubstituted],
         placeholders: [],
         unknownProperties: [],
         duplicateConcurrent: [],
@@ -625,9 +654,16 @@ export function createComposeTaskflowTool(): ToolDefinition | null {
       // 캔버스에 이미 노드가 있으면 지우고 새로 그리지 않고, Start 에서 이어지는 흐름의 끝에 이어붙인다.
       const graph = readCurrentGraph(ctx)
       const tailNode = findFlowTailNode(graph)
-      const draft = graph.nodes.length > 0 && tailNode
+      const draft: Record<string, unknown> = graph.nodes.length > 0 && tailNode
         ? { mode: 'edit', insertAfter: flattenTreeToInsertOps(roots, formatNodeTarget(tailNode)) }
         : { mode: 'replace', roots }
+      // 요청한 이름과 다른 노드를 넣은 사실은 draft 에도 실어 보낸다.
+      // prompt 행이 비어 있어 문구가 빠지더라도 프론트가 "무엇으로 대체했는지" 는 반드시 알리게 한다.
+      const substitutionPairs = [
+        ...notes.substituted.map((row) => `${row.requested} → ${row.resolved}`),
+        ...notes.placeholders.map((row) => `${row.requested} → ${row.placedWith}`),
+      ]
+      if (substitutionPairs.length > 0) draft.substitutions = substitutionPairs
       if (tailNode) {
         trace(traceReqId(ctx.context), '4-2-1.compose-anchor', { tail: formatNodeTarget(tailNode) })
       }
@@ -641,7 +677,7 @@ export function createComposeTaskflowTool(): ToolDefinition | null {
             : 0,
       })
       trace(traceReqId(ctx.context), '4-3.compose-draft', {
-        mode: draft.mode,
+        mode: String(draft.mode),
         rootCount: Array.isArray((draft as any).roots) ? (draft as any).roots.length : 0,
         insertCount: Array.isArray((draft as any).insertAfter) ? (draft as any).insertAfter.length : 0,
       })

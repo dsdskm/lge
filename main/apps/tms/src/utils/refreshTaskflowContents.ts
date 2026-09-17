@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: LicenseRef-LGE-Proprietary
  */
 
+import { ContentVersionInfo } from './fetchAvailableContents'
+
 // 저장된 taskflow(flowDefinition)의 contents 를 최신 콘텐츠 목록으로 갱신한다.
 //
 // - flowDefinition.contents[] : taskflow 가 사용하는 콘텐츠 스냅샷(저장 시점). 항목 키: id, name,
@@ -74,6 +76,36 @@ function applyToNodeData(data: Record<string, any>, fresh: AvailableContent): vo
   if (fresh.version !== undefined) data.contentVersion = fresh.version
 }
 
+export function getContentIdsInNodes<N extends { data?: any }>(nodes: N[]) {
+  const contentsIds = new Map<number, string>()
+
+  for (const node of nodes) {
+    const data = node?.data
+    const contentId = Number(data?.contentId)
+    if (!data || !Number.isFinite(contentId)) {
+      continue
+    }
+    const currentVersion = normalizeVersion(data.contentVersion)
+    contentsIds.set(contentId, currentVersion!)
+  }
+
+  return contentsIds
+}
+
+export function getContentIdsInTaskflow<T extends Record<string, any>>(flowDefinition: T) {
+  const contentsIds = new Map<number, string>()
+
+  // 1) contents[] 갱신 (version 이 다른 것만). 최신 목록에 없으면 missing.
+  const contents: any[] = Array.isArray(flowDefinition.contents) ? flowDefinition.contents : []
+  for (const item of contents) {
+    const id = Number(item?.id)
+    if (!Number.isFinite(id)) continue
+    contentsIds.set(id, item.version)
+  }
+
+  return contentsIds
+}
+
 export function refreshTaskflowContents<T extends Record<string, any>>(
   flowDefinition: T,
   availableContents: AvailableContent[]
@@ -136,12 +168,14 @@ export type RefreshContentNodesResult<N = any> = {
 //  - 원본 노드 배열/객체는 변경하지 않고 새 배열을 반환한다(변경된 노드만 새 객체).
 export function refreshContentNodes<N extends { data?: any }>(
   nodes: N[],
-  availableContents: AvailableContent[]
+  updatedContents: AvailableContent[],
+  missingContents: ContentVersionInfo[]
 ): RefreshContentNodesResult<N> {
-  const availableById = new Map<number, AvailableContent>()
-  for (const c of availableContents ?? []) {
-    if (c && c.id != null) availableById.set(Number(c.id), c)
+  const updatedContentsById = new Map<number, AvailableContent>()
+  for (const c of updatedContents ?? []) {
+    if (c && c.id != null) updatedContentsById.set(Number(c.id), c)
   }
+  const missingIdsSet = new Set(missingContents.map((contentInfo) => contentInfo.id))
 
   const changed: ContentChange[] = []
   const missing: MissingContent[] = []
@@ -152,17 +186,24 @@ export function refreshContentNodes<N extends { data?: any }>(
     if (!data || !Number.isFinite(contentId)) return node // 콘텐츠 노드가 아님
 
     const currentVersion = normalizeVersion(data.contentVersion)
-    const fresh = availableById.get(contentId)
+
+    if (missingIdsSet.has(contentId)) {
+      missing.push({ id: contentId, name: data.contentName, version: currentVersion })
+    }
+    const fresh = updatedContentsById.get(contentId)
 
     if (!fresh) {
-      missing.push({ id: contentId, name: data.contentName, version: currentVersion })
       return node
     }
 
     const newVersion = normalizeVersion(fresh.version)
-    if (currentVersion === newVersion) return node // 버전 동일 → 스킵
 
-    changed.push({ id: contentId, name: data.contentName ?? fresh.name, fromVersion: currentVersion, toVersion: newVersion })
+    changed.push({
+      id: contentId,
+      name: data.contentName ?? fresh.name,
+      fromVersion: currentVersion,
+      toVersion: newVersion
+    })
     const nextData = { ...data }
     applyToNodeData(nextData, fresh)
     return { ...node, data: nextData }

@@ -143,15 +143,30 @@ export function getConnectDenyReason(
   const parallelNodeId = normalizeTaskName(sourceTaskName) === 'parallel' ? String(c.source) : null
   if (parallelNodeId && c.sourceHandle === 'left' && targetTaskType === 'ACTION') {
     const targetKey = normalizeTaskName(getNodeTaskName(targetNode))
-    const existingChildren = edges.filter(
-      (edge) =>
-        !hasExistingSameConnection(edge) &&
-        String(edge.source) === parallelNodeId &&
-        String(edge.sourceHandle) === 'left'
-    )
+    // 바로 붙은 자식만 보면 안 된다. 자식 뒤로 이어진 노드까지 이 Parallel 이 한 번에 돌리는 묶음이다.
+    const descendantIds = new Set<string>()
+    const queue = edges
+      .filter(
+        (edge) =>
+          !hasExistingSameConnection(edge) &&
+          String(edge.source) === parallelNodeId &&
+          String(edge.sourceHandle) === 'left'
+      )
+      .map((edge) => String(edge.target))
 
-    const duplicateSameTask = existingChildren.some((edge) => {
-      const childNode = nodes.find((n) => String(n.id) === String(edge.target))
+    while (queue.length > 0) {
+      const currentId = String(queue.shift() ?? '')
+      if (!currentId || currentId === parallelNodeId || descendantIds.has(currentId)) continue
+
+      descendantIds.add(currentId)
+      for (const edge of edges) {
+        if (hasExistingSameConnection(edge) || String(edge.source) !== currentId) continue
+        queue.push(String(edge.target))
+      }
+    }
+
+    const duplicateSameTask = Array.from(descendantIds).some((nodeId) => {
+      const childNode = nodes.find((n) => String(n.id) === nodeId)
       return getNodeTaskType(childNode) === 'ACTION' && normalizeTaskName(getNodeTaskName(childNode)) === targetKey
     })
 

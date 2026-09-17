@@ -1,40 +1,27 @@
-import { useDevice } from '@/api/deviceApis'
 import { StyledPageContent, Title, NoData, Checkbox, Button } from '@repo/ui'
 import { useParams } from 'react-router-dom'
 import TaskFlowList from './components/TaskFlowList'
-import { useEffect, useMemo, useRef, useState, version } from 'react'
-import { InstantAction, InstantActionsPayload } from '@/types/api/deviceControl'
-import { useOrganizationStore, useUserStore } from '@repo/stores'
-import { useInstantAction } from '@/api/deviceControlApis'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { FlowArea, FlowCanvasWrap } from '../TaskFlowListDetailPage/styles'
-import { useDeployTaskFlowAction, useGetTaskFlow, useListTaskFlows } from '@/api/taskFlowApis'
+import { useGetTaskFlow, useListTaskFlows } from '@/api/taskFlowApis'
 import TaskFlowReadonlyCanvas from '../TaskFlowCanvasPage/FlowCanvasViewer'
 import { useTranslation } from 'react-i18next'
 import { CenteredContent, Section } from './styles'
 import { toast } from 'react-toastify'
 import { RobotTaskFlow } from '@/types/api/device'
 import { Battery, Activity } from 'lucide-react'
-import DeployModal, { DeployTaskFlow } from '../DeployPage/components/DeployModal'
-import { TaskFlow } from '@/types/taskflow'
+import DeployModal from '../DeployPage/components/DeployModal'
 import useDeploy from '@/pages/hooks/useDeploy'
 import { useGetLatestDeployments } from '@/api/robotDeployApis'
-
-const normalizeNullableValue = (value: unknown): string | null => {
-  if (value == null) return null
-  const next = String(value).trim()
-  if (!next || next === 'none' || next === 'all') return null
-  return next
-}
+import { useRobotSource } from '@/adapters/robot/robot.source'
+import { useRobot } from '@/adapters/robot/useRobot'
+import { useRobotCommand } from '@/adapters/command/robot.command'
 
 const RobotDetailPage = () => {
   const { t } = useTranslation('tms')
   const { robotId } = useParams()
   const initialized = useRef(false)
   const [selectedId, setSelectedId] = useState(-1)
-  const { data: robotData, error: robotDataError, isLoading: robotDataLoading } = useDevice(robotId, 1500)
-  const { selectedOrgs } = useOrganizationStore()
-  const { session } = useUserStore()
-  const { mutate, isPending } = useInstantAction()
   const { data: taskFlowData } = useGetTaskFlow(selectedId)
 
   const [checkedItems, setCheckedItems] = useState<number[]>([])
@@ -56,6 +43,14 @@ const RobotDetailPage = () => {
   } | null>(null)
 
   const { execUnDeployAction, deployActionReset, makeDeployState } = useDeploy()
+
+  console.log('robot id check = ', robotId)
+
+  useRobotSource(robotId ?? '')
+  const { data, isError, isLoading } = useRobot(robotId)
+  const robotData = data
+  const robotDataError = isError
+  const robotDataLoading = isLoading
 
   const group = robotData?.provision?.groupId
   const site = robotData?.provision?.siteId
@@ -106,8 +101,10 @@ const RobotDetailPage = () => {
     initialized.current = true
   }, [robotData])
 
-  if (robotDataError) return <div>loading</div>
-  if (robotDataLoading) return <div>error</div>
+  const { send, isPending } = useRobotCommand(robotId)
+
+  if (robotDataError) return <div>error</div>
+  if (robotDataLoading) return <div>loading</div>
 
   const onTaskFlowSelect = (id: number) => {
     setSelectedId(id)
@@ -130,33 +127,16 @@ const RobotDetailPage = () => {
     setOneItemViewClicked(!oneItemViewClicked)
   }
 
-  const onCommandClick = (command: string, taskFlowId: number) => {
-    console.log('click button', command)
-    const requestBody = createInstantActionsRequestBody(session?.userId, [
-      createInstantAction(command, { tms_id: String(taskFlowId) }, 'HARD')
-    ])
+  const onCommandClick = async (command: string, taskFlowId: number) => {
+    // send 는 실패해도 던지지 않고 결과를 값으로 돌려준다.
+    // 여기서 성공은 "요청이 접수됨"까지이고, 실제 반영 여부는 로봇 상태로 확인한다.
+    const result = await send({ command, taskFlowId })
 
-    console.log('request body', requestBody)
-
-    mutate(
-      {
-        deviceId: robotId ?? '',
-        body: requestBody
-      },
-      {
-        onSuccess: (data) => {
-          console.log('success', data)
-          //dismissPopup()
-          toast.info('제어를 요청했습니다.')
-        },
-        onError: (error) => {
-          console.error('error', error)
-          //dismissPopup()
-          toast.warning('제어를 요청이 실패 되었습니다')
-        }
-      }
-    )
-    console.log('deploy')
+    if (result.ok) {
+      toast.info('제어를 요청했습니다.')
+    } else {
+      toast.warning('제어 요청에 실패했습니다.')
+    }
   }
   const onDeployPopupClicked = () => {
     setPopup(true)
@@ -173,26 +153,6 @@ const RobotDetailPage = () => {
     }
     setDeploysResult(null)
     deployActionReset()
-  }
-
-  const createInstantActionsRequestBody = (userId: string, actions: InstantAction[]): InstantActionsPayload => {
-    return {
-      userId: userId,
-      actions: actions
-    }
-  }
-
-  const createInstantAction = (
-    actionType: string,
-    params?: Record<string, string | number | boolean>,
-    blockingType: InstantAction['blockingType'] = 'NONE'
-  ): InstantAction => {
-    return {
-      actionType,
-      actionId: crypto.randomUUID(),
-      blockingType,
-      actionParameters: params ? Object.entries(params).map(([key, value]) => ({ key, value })) : undefined
-    }
   }
 
   const changedTasks = robotData?.tms?.taskFlowState?.runningTaskFlowStatus

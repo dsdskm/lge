@@ -6,13 +6,12 @@ import { getRunningTaskFlowStatusLabel } from '@/utils/taskflowStatus'
 import { Div } from '@/assets'
 import { Checkbox } from '@repo/ui'
 import SkillIndicator from '../SkillIndicator'
+import { SEP } from '@/common/constants'
 
 // export type RobotItem =
 //   | { type: 'groupSection'; key: string; label: string; deployable: boolean }
 //   | { type: 'groupHeader'; key: string; groupName: string; siteName: string }
 //   | { type: 'robot'; key: string; robot: RobotInfo }
-
-const SEP = '\u00B7'
 
 type RobotItemProps = {
   robot: RobotInfo

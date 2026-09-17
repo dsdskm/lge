@@ -8,11 +8,7 @@
 
 import { client } from '@repo/apis'
 import { ENDPOINTS, GETSIZE } from '@/api/apiConstants'
-import {
-  refreshTaskflowContents,
-  type AvailableContent,
-  type RefreshTaskflowContentsResult
-} from './refreshTaskflowContents'
+import { type AvailableContent } from './refreshTaskflowContents'
 
 const axiosClient = client(import.meta.env.VITE_API_BASE_URL)
 
@@ -26,6 +22,17 @@ export type ContentsListResponse = {
   hasNext: boolean | null
   hasPrev: boolean | null
   nextCursor: string | null
+}
+
+export class ContentVersionInfo {
+  id!: number
+  version!: string
+}
+
+export class UpdatedResponseDto {
+  updatedContents!: AvailableContent[]
+
+  missingContents!: ContentVersionInfo[]
 }
 
 // api/v1/web/contents?groupId=&siteId=&size=100 → 사용 가능한 콘텐츠 목록.
@@ -47,13 +54,20 @@ export async function fetchAvailableContents(
   return Array.isArray(res?.content) ? res.content : []
 }
 
-// taskflow 의 groupId/siteId 로 최신 콘텐츠를 받아 flowDefinition 을 갱신한다.
-export async function refreshTaskflowContentsViaApi<T extends Record<string, any>>(
-  flowDefinition: T
-): Promise<RefreshTaskflowContentsResult<T>> {
-  const groupId = (flowDefinition?.groupId as string | null) ?? null
-  const siteId = (flowDefinition?.siteId as string | null) ?? null
+export async function fetchUpdatedContents(
+  groupId: string | null,
+  siteId: string | null,
+  contentInfos: Map<number, string>,
+  size: string = GETSIZE
+): Promise<UpdatedResponseDto> {
+  const contentVersionInfos = Array.from(contentInfos, ([id, version]) => ({ id, version }))
 
-  const availableContents = await fetchAvailableContents(groupId, siteId)
-  return refreshTaskflowContents(flowDefinition, availableContents)
+  const url = `${ENDPOINTS.TMS.CONTENTS_CHECKUPDATED}`
+  const res = (await axiosClient.post(url, {
+    contentVersionInfos,
+    groupId,
+    siteId
+  })) as UpdatedResponseDto
+
+  return res
 }

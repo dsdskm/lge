@@ -23,7 +23,7 @@ import {
   ErrorText
 } from './styles'
 import { list as listLanguages, update as updateLanguage } from '@/apis/languageApis'
-import { advanceSetupProgress, SETUP_STEPS } from '@/utils/setupProgress'
+import { advanceSetupProgress, SETUP_STEP_KEYS } from '@/utils/setupProgress'
 
 // 목록 자체는 BE 언어 마스터(languages)에서 받아오고, 뱃지/부가 표기만 코드별로 보완한다.
 // 미등록 코드는 언어 서브태그(ko-KR -> KO)를 뱃지로 쓰고 부가 표기는 코드를 그대로 노출한다.
@@ -100,10 +100,11 @@ const Language = () => {
 
       await i18n.changeLanguage(selected)
       window.localStorage.setItem('i18nextLng', selected)
-      // 이 단계를 끝냈으므로 '작업 중인 단계' 를 다음 화면(사이트 코드)으로 옮긴다.
+      // 이 단계를 끝냈으므로 '작업 중인 단계' 를 다음 화면(설치 모드 선택)으로 옮긴다.
+      // 모드를 고르기 전까지는 뒤 단계 목록이 정해지지 않으므로 여기서는 항상 모드 선택이 다음이다.
       // (네트워크 설정은 설치 단계에서 빠져 헤더 Wi-Fi 아이콘으로만 들어간다 — routes.jsx)
-      await advanceSetupProgress(SETUP_STEPS.SITE_CODE)
-      navigate('/site-code')
+      await advanceSetupProgress(SETUP_STEP_KEYS.INSTALL_MODE)
+      navigate('/install-mode')
     } catch (e) {
       setErr(t('language.saveFailed', { message: e.message }))
     } finally {

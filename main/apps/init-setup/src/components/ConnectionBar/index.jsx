@@ -11,7 +11,7 @@ import {
   list as listMapRecords
 } from '@/apis/mapApis'
 import { list as listPois, remove as removePoi } from '@/apis/mapPoiApis'
-import { SETUP_STEPS, tryAdvanceSetupProgress } from '@/utils/setupProgress'
+import { SETUP_STEP_KEYS, tryAdvanceSetupProgress } from '@/utils/setupProgress'
 import {
   buildMapRecordBody,
   isWorkingMapDir,
@@ -161,7 +161,7 @@ export default function ConnectionBar({
       onSuccess: () => {
         setSessionStarted(true)
         // 매핑을 시작했을 뿐이므로 이 단계는 아직 완료되지 않은 것으로 기록한다(작업 중인 단계 = 맵 스캔).
-        tryAdvanceSetupProgress(SETUP_STEPS.MAP_SCAN)
+        tryAdvanceSetupProgress(SETUP_STEP_KEYS.MAP_SCAN)
       },
       onError: () => setSessionStarted(false),
       successMessage: 'Mapping started'
@@ -248,7 +248,7 @@ export default function ConnectionBar({
         // 끝났으므로 조작부를 시작 버튼으로 되돌린다.
         setSessionStarted(false)
         // 맵 저장이 끝났으므로 이 단계를 완료로 기록한다 — 다음 작업 단계(시맨틱)를 가리킨다.
-        tryAdvanceSetupProgress(SETUP_STEPS.MAP_SEMANTIC)
+        tryAdvanceSetupProgress(SETUP_STEP_KEYS.MAP_SEMANTIC)
         // 저장 응답 성공 = 3D 맵(PCD + trajectory) 저장 완료 → 완료 모달을 띄운다.
         // 폴더 이름은 백엔드가 확정한 값을 쓴다(요청과 같지만 BE 가 정본이다).
         const savedDir = response?.data?.name || dirName

@@ -58,8 +58,17 @@ import {
   StyledAiActionCard,
   StyledAiActionCardTitle,
   StyledAiActionCardKeyword,
-  StyledAiStopButton
+  StyledAiStopButton,
+  StyledAiTestLabel,
+  StyledAiTestListBody,
+  StyledAiTestListHeader,
+  StyledAiTestListOverlay,
+  StyledAiTestListPanel,
+  StyledAiTestListRow,
+  StyledAiTestListText,
+  StyledAiTestListTitle
 } from './styles'
+import { AI_TASKFLOW_TEST_CASES } from '@repo/constants'
 import { postSiteAssistantChat } from '@repo/apis/ai/chat.js'
 import { runClientAction } from '@repo/ai/client-actions/index.js'
 import { ruleCheck } from '@repo/ai/rules/chat-rule-matcher.js'
@@ -557,6 +566,19 @@ const AiAssistantPanel = ({
 
   const [draft, setDraft] = useState('')
   const [isSending, setIsSending] = useState(false)
+  // 회귀 테스트(임시) 실행 상태. 정지 버튼을 누르면 ref 를 보고 다음 문장으로 넘어가지 않는다.
+  const [isTestRunning, setIsTestRunning] = useState(false)
+  // 다음에 실행할 케이스 순번(0-based). 버튼에 Test(n/전체) 로 보인다.
+  const [testIndex, setTestIndex] = useState(0)
+  const testStopRef = useRef(false)
+  const testTallyRef = useRef({ pass: 0, fail: 0, skip: 0 })
+  // 판정 문장에 대한 마지막 답변. 실패 원인을 보고에 같이 싣는다.
+  const lastAssistantTextRef = useRef('')
+  const testCaseCount = Array.isArray(AI_TASKFLOW_TEST_CASES) ? AI_TASKFLOW_TEST_CASES.length : 0
+  // 테스트 문장 목록 팝업. 팔레트 이름이 채워진 실제 문장을 보여 준다.
+  const [isTestListOpen, setIsTestListOpen] = useState(false)
+  // Auto 실행이 끝난 뒤 보여 줄 전체 결과. null 이면 팝업을 닫아 둔다.
+  const [testResultReport, setTestResultReport] = useState(null)
   const [sendingStage, setSendingStage] = useState(SENDING_STAGE.IDLE)
   const [sendingElapsedSec, setSendingElapsedSec] = useState(0)
   const [typedStageLabel, setTypedStageLabel] = useState('')
@@ -580,6 +602,8 @@ const AiAssistantPanel = ({
   const shouldScrollToBottomRef = useRef(true)
   const sendingStartedAtRef = useRef(null)
   const assistantTypingTimerRef = useRef(null)
+  // 타이핑 중인지 즉시 읽어야 하는 곳(회귀 테스트 진행)이 있어 상태와 같이 ref 로도 들고 있다.
+  const assistantTypingActiveRef = useRef(false)
   const assistantMessageContentRef = useRef(
     new Map(
       messages
@@ -598,6 +622,11 @@ const AiAssistantPanel = ({
   const lastFiltersRef = useRef(null)
 
   const routeContext = useMemo(() => buildRouteContext(location), [location])
+  // 임시 회귀 테스트 버튼은 TMS TaskFlow 캔버스 화면에서만 노출한다.
+  const isTaskflowCanvasRoute = useMemo(
+    () => /^\/tms\/taskflows\/[^/]+\/canvas\/?$/.test(String(routeContext?.pathname ?? '')),
+    [routeContext.pathname]
+  )
   const routeMetadataCacheRef = useRef(new Map())
   const [routeAppKey, setRouteAppKey] = useState('common')
   const [routeScreenKey, setRouteScreenKey] = useState('common')
@@ -918,6 +947,7 @@ const AiAssistantPanel = ({
       ...prev,
       [targetId]: ''
     }))
+    assistantTypingActiveRef.current = true
     setIsAssistantTyping(true)
 
     const { intervalMs, charsPerTick } = getAssistantTypingPace(fullText)
@@ -935,6 +965,7 @@ const AiAssistantPanel = ({
           clearInterval(assistantTypingTimerRef.current)
           assistantTypingTimerRef.current = null
         }
+        assistantTypingActiveRef.current = false
         setIsAssistantTyping(false)
       }
     }, intervalMs)
@@ -944,6 +975,12 @@ const AiAssistantPanel = ({
         clearInterval(assistantTypingTimerRef.current)
         assistantTypingTimerRef.current = null
       }
+      // 새 메시지가 들어와 이 효과가 정리될 때 타이핑 중이던 답변은 전문으로 채운다.
+      // 안 채우면 앞 답변이 "[3/12] T03-t" 처럼 잘린 상태로 남는다.
+      setTypedAssistantMessages((prev) =>
+        String(prev[targetId] ?? '').length >= fullText.length ? prev : { ...prev, [targetId]: fullText }
+      )
+      assistantTypingActiveRef.current = false
       setIsAssistantTyping(false)
     }
   }, [messages])
@@ -954,6 +991,7 @@ const AiAssistantPanel = ({
         clearInterval(assistantTypingTimerRef.current)
         assistantTypingTimerRef.current = null
       }
+      assistantTypingActiveRef.current = false
       setIsAssistantTyping(false)
     }
   }, [])
@@ -1058,6 +1096,8 @@ const AiAssistantPanel = ({
 
   const showAssistantReply = useCallback(
     (assistantText, context) => {
+      // 회귀 테스트 보고에 그대로 싣기 위해 마지막 답변을 들고 있는다.
+      lastAssistantTextRef.current = String(assistantText ?? '')
       shouldScrollToBottomRef.current = true
       appendMessage({
         id: buildMessageId(),
@@ -1201,11 +1241,21 @@ const AiAssistantPanel = ({
       })
       if (activeRequestIdRef.current !== requestId || controller.signal.aborted) return
 
-      const assistantText = !canvasApply
+      const baseText = !canvasApply
         ? serverText
         : canvasApply.applied
           ? serverText
           : canvasApply.message || '요청을 받았지만 캔버스에 반영하지 못했습니다.'
+
+      // 캔버스가 요청과 다른 이름으로 놓은 노드는 서버 문구에 없을 수 있어 여기서 덧붙인다.
+      const notices = Array.isArray(canvasApply?.notices) ? canvasApply.notices : []
+      // 서버 문구는 이름을 ** 로 강조해 보내므로 강조 표시를 뗀 뒤 이미 알렸는지 본다.
+      const plainBaseText = baseText.replace(/\*\*/g, '')
+      const substitutionLine =
+        notices.length > 0 && !notices.every((pair) => plainBaseText.includes(pair))
+          ? `요청한 이름이 없어 가장 가까운 노드로 넣었습니다: ${notices.join(', ')}`
+          : ''
+      const assistantText = [baseText, substitutionLine].filter(Boolean).join('\n')
 
       console.log('[ai-trace] 10.final-text', {
         reqId: traceReqId,
@@ -1294,8 +1344,260 @@ const AiAssistantPanel = ({
       }
       return next
     })
+    assistantTypingActiveRef.current = false
     setIsAssistantTyping(false)
   }, [appendMessage, isSending, messages, routeContext])
+
+  // ── 회귀 테스트 실행(임시) ────────────────────────────────────────────────
+  // 문장은 @repo/constants 의 AI_TASKFLOW_TEST_CASES, 판정은 캔버스 화면이 올려둔
+  // window.__AI_TASKFLOW_TEST__ (노드/엣지 검사 + BT 변환) 가 한다.
+  // 답변이 다 타이핑될 때까지 기다린다. 먼저 넘어가면 앞 답변이 중간에 잘린 채로 남는다.
+  const waitForAssistantIdle = async (timeoutMs = 30000) => {
+    const startedAt = Date.now()
+    // 타이핑이 시작되기까지의 한 박자.
+    await sleep(150)
+    while (Date.now() - startedAt < timeoutMs) {
+      if (testStopRef.current) return
+      if (!assistantTypingActiveRef.current) break
+      await sleep(120)
+    }
+    await sleep(250)
+  }
+
+  /** 케이스 한 건을 실행하고 판정 결과를 돌려준다. 보고 메시지도 이 안에서 채팅에 남긴다. */
+  const runTestCaseAt = async (index, cases) => {
+    const rawCase = cases[index] ?? {}
+    // 케이스의 {{슬롯}}({{face1}} 등)은 실제 팔레트 노드 이름으로 채워 쓴다. 이름을 코드에 박지 않는다.
+    const testCase = window.__AI_TASKFLOW_TEST__?.resolveCase?.(rawCase) ?? rawCase
+    const order = `[${index + 1}/${cases.length}]`
+    const heading = `${order} ${rawCase.key ?? ''} ${rawCase.title ?? ''}`.trim()
+    const slotLine = Object.entries(testCase.resolvedSlots ?? {})
+      .map(([name, value]) => `${name}=${value}`)
+      .join(', ')
+
+    if (testCase.skipReason) {
+      testTallyRef.current.skip += 1
+      showAssistantReply([`${heading} — ⏭ Skip`, `이유: ${testCase.skipReason}`].join('\n'), { ...routeContext })
+      await waitForAssistantIdle()
+      return { index, heading, status: 'skip', reasons: [testCase.skipReason], message: testCase.message ?? '' }
+    }
+
+    // 케이스마다 Start 노드만 남기고 전부 지운 뒤 시작한다.
+    // 앞 케이스 결과가 남아 있으면 판정이 섞여 원인을 알 수 없다.
+    window.__AI_TASKFLOW_TEST__?.reset()
+    await sleep(400)
+    for (let retry = 0; retry < 5; retry += 1) {
+      const remaining = window.__AI_TASKFLOW_TEST__?.verify({})?.graph?.nodes ?? []
+      if (remaining.length === 0) break
+      window.__AI_TASKFLOW_TEST__?.reset()
+      await sleep(400)
+    }
+    if (testStopRef.current) return { index, heading, status: 'stopped', reasons: [], message: testCase.message ?? '' }
+
+    // 기준 노드를 만드는 준비 문장. 판정 대상이 아니다.
+    for (const setupMessage of Array.isArray(testCase.setup) ? testCase.setup : []) {
+      if (testStopRef.current) break
+      await handleSubmit(setupMessage)
+      await waitForAssistantIdle()
+    }
+    if (testStopRef.current) return { index, heading, status: 'stopped', reasons: [], message: testCase.message ?? '' }
+
+    lastAssistantTextRef.current = ''
+    await handleSubmit(testCase.message)
+    if (testStopRef.current) return { index, heading, status: 'stopped', reasons: [], message: testCase.message ?? '' }
+
+    // 답변이 다 나오고 캔버스 반영이 화면 상태로 커밋된 뒤에 판정한다.
+    await waitForAssistantIdle()
+    if (testStopRef.current) return { index, heading, status: 'stopped', reasons: [], message: testCase.message ?? '' }
+
+    // 판정은 노드/엣지 구성만 본다(BT 변환은 보지 않는다).
+    const verified = window.__AI_TASKFLOW_TEST__?.verify(testCase.expect)
+    const ok = Boolean(verified?.ok)
+    if (ok) testTallyRef.current.pass += 1
+    else testTallyRef.current.fail += 1
+
+    const reasons = ok ? [] : (verified?.failures ?? ['판정 결과 없음'])
+    const lines = [
+      `${heading} — ${ok ? '✅ Success' : '❌ Fail'}`,
+      ...(Array.isArray(testCase.setup) && testCase.setup.length > 0
+        ? [`준비 문장: ${testCase.setup.join(' / ')}`]
+        : []),
+      `문장: ${testCase.message ?? ''}`,
+      ...(slotLine ? [`팔레트 이름: ${slotLine}`] : []),
+      `응답: ${lastAssistantTextRef.current || '-'}`,
+      `노드: ${verified?.graph?.nodes?.join(', ') || '-'}`,
+      `자식 연결: ${verified?.graph?.childEdges?.join(' / ') || '-'}`,
+      `순차 연결: ${verified?.graph?.nextEdges?.join(' / ') || '-'}`
+    ]
+    if (!ok) lines.push(`기대와 다른 점:\n- ${reasons.join('\n- ')}`)
+
+    showAssistantReply(lines.join('\n'), { ...routeContext })
+    await waitForAssistantIdle()
+
+    return {
+      index,
+      heading,
+      status: ok ? 'pass' : 'fail',
+      reasons,
+      message: testCase.message ?? '',
+      reply: lastAssistantTextRef.current || ''
+    }
+  }
+
+  /** 결과 팝업의 복사 버튼이 쓰는 전체 보고 텍스트(성공 케이스까지 모두 담는다). */
+  const buildTestReportText = (report) => {
+    if (!report) return ''
+    const head = `테스트 결과 ${report.ran}/${report.total}건 · Success ${report.pass} · Fail ${report.fail} · Skip ${report.skip}${
+      report.stopped ? ' · 중지됨' : ''
+    }`
+    const icon = { pass: '✅', fail: '❌', skip: '⏭' }
+    const blocks = (report.results ?? []).map((row) =>
+      [
+        `${icon[row.status] ?? '•'} ${row.heading}`,
+        `문장: ${row.message ?? ''}`,
+        ...(row.reasons?.length > 0 ? [`기대와 다른 점:\n- ${row.reasons.join('\n- ')}`] : []),
+        ...(row.reply ? [`응답: ${row.reply}`] : [])
+      ].join('\n')
+    )
+    return [head, '', ...blocks].join('\n\n')
+  }
+
+  const [isReportCopied, setIsReportCopied] = useState(false)
+
+  const handleCopyTestReport = async () => {
+    const text = buildTestReportText(testResultReport)
+    if (!text) return
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      const area = document.createElement('textarea')
+      area.value = text
+      document.body.appendChild(area)
+      area.select()
+      document.execCommand('copy')
+      document.body.removeChild(area)
+    }
+    setIsReportCopied(true)
+    window.setTimeout(() => setIsReportCopied(false), 1500)
+  }
+
+  /** 실행 전 확인. 캔버스 화면이 아니거나 케이스가 없으면 안내만 하고 멈춘다. */
+  const readyTestCases = () => {
+    const cases = Array.isArray(AI_TASKFLOW_TEST_CASES) ? AI_TASKFLOW_TEST_CASES : []
+    if (typeof window === 'undefined' || !window.__AI_TASKFLOW_TEST__) {
+      showAssistantReply('TaskFlow 캔버스 화면에서만 테스트를 실행할 수 있습니다.', { ...routeContext })
+      return null
+    }
+    if (cases.length === 0) {
+      showAssistantReply('실행할 테스트 문장이 없습니다.', { ...routeContext })
+      return null
+    }
+    return cases
+  }
+
+  // Test 버튼은 한 번에 한 케이스만 실행한다. 버튼에 Test(1/27) 처럼 다음 순번이 보인다.
+  // 한 문장씩 눌러 가며 확인해야 어느 케이스에서 무엇이 어긋났는지 볼 수 있다.
+  const handleRunNextTest = async () => {
+    if (isSending || isTestRunning) return
+
+    const cases = readyTestCases()
+    if (!cases) return
+
+    const index = testIndex >= cases.length ? 0 : testIndex
+    // 처음부터 다시 시작하는 순간에 누적 집계를 초기화한다.
+    if (index === 0) testTallyRef.current = { pass: 0, fail: 0, skip: 0 }
+
+    testStopRef.current = false
+    setIsTestRunning(true)
+
+    try {
+      const result = await runTestCaseAt(index, cases)
+      if (result.status === 'stopped') return
+
+      const isLast = index + 1 >= cases.length
+      if (isLast) {
+        showAssistantReply(
+          [
+            `전체 ${cases.length}건 완료 · Success ${testTallyRef.current.pass} · Fail ${testTallyRef.current.fail} · Skip ${testTallyRef.current.skip}`,
+            '다시 누르면 1번부터 시작합니다.'
+          ].join('\n'),
+          { ...routeContext }
+        )
+        await waitForAssistantIdle()
+      }
+      setTestIndex(isLast ? 0 : index + 1)
+    } finally {
+      if (testStopRef.current) {
+        testStopRef.current = false
+        showAssistantReply(`${index + 1}번 실행을 중지했습니다. 다시 누르면 이 케이스를 다시 실행합니다.`, {
+          ...routeContext
+        })
+      }
+      setIsTestRunning(false)
+    }
+  }
+
+  // Auto 버튼. 1번부터 끝까지 이어서 돌리고, 끝나면 전체 결과와 실패 케이스를 팝업으로 보여 준다.
+  const handleRunAllTests = async () => {
+    if (isSending || isTestRunning) return
+
+    const cases = readyTestCases()
+    if (!cases) return
+
+    testTallyRef.current = { pass: 0, fail: 0, skip: 0 }
+    testStopRef.current = false
+    setIsTestRunning(true)
+    setTestResultReport(null)
+    setTestIndex(0)
+
+    const results = []
+    let stopped = false
+
+    try {
+      for (let index = 0; index < cases.length; index += 1) {
+        setTestIndex(index)
+        const result = await runTestCaseAt(index, cases)
+        if (result.status === 'stopped' || testStopRef.current) {
+          stopped = true
+          break
+        }
+        results.push(result)
+      }
+    } finally {
+      testStopRef.current = false
+      setIsTestRunning(false)
+      setTestIndex(0)
+      setTestResultReport({
+        stopped,
+        total: cases.length,
+        ran: results.length,
+        pass: results.filter((row) => row.status === 'pass').length,
+        fail: results.filter((row) => row.status === 'fail').length,
+        skip: results.filter((row) => row.status === 'skip').length,
+        results
+      })
+    }
+  }
+
+  // 목록에 보여 줄 문장. 캔버스 화면이면 {{슬롯}} 을 실제 팔레트 이름으로 채워 보여 준다.
+  const buildTestCaseList = () =>
+    (Array.isArray(AI_TASKFLOW_TEST_CASES) ? AI_TASKFLOW_TEST_CASES : []).map((testCase, index) => {
+      const resolved =
+        typeof window !== 'undefined' ? window.__AI_TASKFLOW_TEST__?.resolveCase?.(testCase) ?? testCase : testCase
+      return {
+        index,
+        key: testCase.key ?? '',
+        title: testCase.title ?? '',
+        setup: Array.isArray(resolved.setup) ? resolved.setup : [],
+        message: resolved.message ?? testCase.message ?? '',
+        skipReason: resolved.skipReason ?? ''
+      }
+    })
+
+  const handleStopTests = useCallback(() => {
+    testStopRef.current = true
+    handleStop()
+  }, [handleStop])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -1327,6 +1629,70 @@ const AiAssistantPanel = ({
         </StyledAiHeaderLeft>
 
         <StyledAiHeaderActions>
+          {/* 임시 회귀 테스트 버튼. 좌우 화살표로 케이스를 골라 두고, 가운데를 누르면 그 케이스만 실행한다. */}
+          {isOpen && isTaskflowCanvasRoute && (
+            <StyledAiAssistantDockToggle
+              onClick={() => setTestIndex((prev) => (prev - 1 + testCaseCount) % testCaseCount)}
+              title="이전 테스트 케이스"
+              disabled={isTestRunning || testCaseCount === 0}
+              type="button"
+            >
+              <StyledAiTestLabel>&lt;</StyledAiTestLabel>
+            </StyledAiAssistantDockToggle>
+          )}
+
+          {isOpen && isTaskflowCanvasRoute && (
+            <StyledAiAssistantDockToggle
+              style={{ width: 'auto', minWidth: '3rem' }}
+              onClick={isTestRunning ? handleStopTests : handleRunNextTest}
+              title={
+                isTestRunning
+                  ? '테스트 정지'
+                  : `테스트 ${testIndex + 1}번 실행: ${AI_TASKFLOW_TEST_CASES?.[testIndex]?.title ?? ''}`
+              }
+              disabled={!isTestRunning && isSending}
+              type="button"
+            >
+              <StyledAiTestLabel $running={isTestRunning}>
+                {isTestRunning ? 'Stop' : `Test(${testIndex + 1}/${testCaseCount})`}
+              </StyledAiTestLabel>
+            </StyledAiAssistantDockToggle>
+          )}
+
+          {isOpen && isTaskflowCanvasRoute && (
+            <StyledAiAssistantDockToggle
+              onClick={() => setTestIndex((prev) => (prev + 1) % testCaseCount)}
+              title="다음 테스트 케이스"
+              disabled={isTestRunning || testCaseCount === 0}
+              type="button"
+            >
+              <StyledAiTestLabel>&gt;</StyledAiTestLabel>
+            </StyledAiAssistantDockToggle>
+          )}
+
+          {isOpen && isTaskflowCanvasRoute && (
+            <StyledAiAssistantDockToggle
+              style={{ width: 'auto', minWidth: '3rem' }}
+              onClick={handleRunAllTests}
+              title="전체 케이스 자동 실행"
+              disabled={isTestRunning || isSending || testCaseCount === 0}
+              type="button"
+            >
+              <StyledAiTestLabel>Auto</StyledAiTestLabel>
+            </StyledAiAssistantDockToggle>
+          )}
+
+          {isOpen && isTaskflowCanvasRoute && (
+            <StyledAiAssistantDockToggle
+              onClick={() => setIsTestListOpen(true)}
+              title="테스트 문장 목록"
+              disabled={testCaseCount === 0}
+              type="button"
+            >
+              <Icon name="playlist" size={16} />
+            </StyledAiAssistantDockToggle>
+          )}
+
           {isOpen && (
             <StyledAiAssistantDockToggle onClick={handleOpenSettings} title="채팅 설정" type="button">
               <Icon name="settings" size={16} />
@@ -1574,6 +1940,98 @@ const AiAssistantPanel = ({
 
           <StyledAiDisclaimer>AI 답변은 오류가 포함될 수 있습니다. 내용을 확인 후 활용해 주세요.</StyledAiDisclaimer>
         </StyledAiAssistantDockBody>
+      )}
+      {/* Auto 실행 결과. 전체 집계와 실패 케이스의 어긋난 점을 그대로 보여 준다. */}
+      {testResultReport && (
+        <StyledAiTestListOverlay onClick={() => setTestResultReport(null)}>
+          <StyledAiTestListPanel onClick={(event) => event.stopPropagation()}>
+            <StyledAiTestListHeader>
+              <strong>
+                {`테스트 결과 ${testResultReport.ran}/${testResultReport.total}건 · Success ${testResultReport.pass} · Fail ${testResultReport.fail} · Skip ${testResultReport.skip}${
+                  testResultReport.stopped ? ' · 중지됨' : ''
+                }`}
+              </strong>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                <StyledAiAssistantDockToggle
+                  style={{ width: 'auto', minWidth: '3rem' }}
+                  onClick={handleCopyTestReport}
+                  title="전체 결과 복사"
+                  type="button"
+                >
+                  <StyledAiTestLabel>{isReportCopied ? 'Copied' : 'Copy'}</StyledAiTestLabel>
+                </StyledAiAssistantDockToggle>
+                <StyledAiAssistantDockToggle onClick={() => setTestResultReport(null)} title="닫기" type="button">
+                  <Icon name="close" size={16} />
+                </StyledAiAssistantDockToggle>
+              </span>
+            </StyledAiTestListHeader>
+            <StyledAiTestListBody>
+              {testResultReport.results.filter((row) => row.status !== 'pass').length === 0 && (
+                <StyledAiTestListRow as="div">
+                  <StyledAiTestListText>실패한 케이스가 없습니다.</StyledAiTestListText>
+                </StyledAiTestListRow>
+              )}
+              {testResultReport.results
+                .filter((row) => row.status !== 'pass')
+                .map((row) => (
+                  <StyledAiTestListRow
+                    key={row.index}
+                    onClick={() => {
+                      setTestIndex(row.index)
+                      setTestResultReport(null)
+                    }}
+                    type="button"
+                  >
+                    <StyledAiTestListTitle>
+                      {`${row.status === 'fail' ? '❌' : '⏭'} ${row.heading}`}
+                    </StyledAiTestListTitle>
+                    <StyledAiTestListText>{`문장: ${row.message}`}</StyledAiTestListText>
+                    {row.reasons.length > 0 && (
+                      <StyledAiTestListText>{`- ${row.reasons.join('\n- ')}`}</StyledAiTestListText>
+                    )}
+                    {row.reply && <StyledAiTestListText>{`응답: ${row.reply}`}</StyledAiTestListText>}
+                  </StyledAiTestListRow>
+                ))}
+            </StyledAiTestListBody>
+          </StyledAiTestListPanel>
+        </StyledAiTestListOverlay>
+      )}
+
+      {/* 임시 회귀 테스트 문장 목록. 행을 누르면 그 케이스가 다음 실행 대상이 된다. */}
+      {isTestListOpen && (
+        <StyledAiTestListOverlay onClick={() => setIsTestListOpen(false)}>
+          <StyledAiTestListPanel onClick={(event) => event.stopPropagation()}>
+            <StyledAiTestListHeader>
+              <strong>테스트 문장 {testCaseCount}건</strong>
+              <StyledAiAssistantDockToggle onClick={() => setIsTestListOpen(false)} title="닫기" type="button">
+                <Icon name="close" size={16} />
+              </StyledAiAssistantDockToggle>
+            </StyledAiTestListHeader>
+            <StyledAiTestListBody>
+              {buildTestCaseList().map((row) => (
+                <StyledAiTestListRow
+                  key={row.key || row.index}
+                  $current={row.index === testIndex}
+                  onClick={() => {
+                    if (isTestRunning) return
+                    setTestIndex(row.index)
+                    setIsTestListOpen(false)
+                  }}
+                  type="button"
+                >
+                  <StyledAiTestListTitle>
+                    {`${String(row.index + 1).padStart(2, '0')}. ${row.key} ${row.title}`}
+                  </StyledAiTestListTitle>
+                  {row.setup.length > 0 && (
+                    <StyledAiTestListText>{`준비: ${row.setup.join(' / ')}`}</StyledAiTestListText>
+                  )}
+                  <StyledAiTestListText>{row.message}</StyledAiTestListText>
+                  {row.skipReason && <StyledAiTestListText>{`⏭ ${row.skipReason}`}</StyledAiTestListText>}
+                </StyledAiTestListRow>
+              ))}
+            </StyledAiTestListBody>
+          </StyledAiTestListPanel>
+        </StyledAiTestListOverlay>
       )}
     </StyledAiAssistantDock>
   )

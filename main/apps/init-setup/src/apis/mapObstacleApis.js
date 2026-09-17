@@ -23,13 +23,6 @@ export const meta = () => axiosApi.get('/map-obstacles/meta')
  */
 export const bulkReplace = (data) => axiosApi.put('/map-obstacles/bulk', data)
 
-/**
- * DB 내용을 맵 워크스페이스의 vo_*.yaml 3분할 파일로 내보낸다 (POST /map-obstacles/apply).
- *
- * corepath_nav2_plugins::VirtualObstacleLayer 가 기동 시 이 파일들을 병합 로드한다.
- * 라이브 반영(/virtual_obstacles 게시)은 아직 경로가 없어 주행 스택 재기동 시점에 반영된다.
- *
- * @param {{mapId: number|string}} data
- * @returns {Promise<{success: boolean, data: {writtenDir: string, files: object[], total: number}}>}
- */
-export const apply = (data) => axiosApi.post('/map-obstacles/apply', data)
+// DB → vo_*.yaml 내보내기 API(구 POST /map-obstacles/apply)는 없다 — 로봇이 읽는 워크스페이스
+// 파일은 corepath 가 만들고, 관제로는 업로드 화면이 POI batch 의 vo 키로 함께 올린다
+// (pages/Upload/uploadTable, utils/poiBatch).

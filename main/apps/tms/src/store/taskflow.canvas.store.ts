@@ -22,8 +22,13 @@ import {
 } from '../common/constants'
 import { ensureStartNode, isStartNodeId, START_NODE_ID } from '../utils/node.util'
 import type { FlowMode } from '../utils/node.util'
-import { fetchAvailableContents } from '../utils/fetchAvailableContents'
-import { refreshContentNodes, type ContentChange, type MissingContent } from '../utils/refreshTaskflowContents'
+import { fetchUpdatedContents } from '../utils/fetchAvailableContents'
+import {
+  getContentIdsInNodes,
+  refreshContentNodes,
+  type ContentChange,
+  type MissingContent
+} from '../utils/refreshTaskflowContents'
 import { getHelperLines } from '../utils/helperLines'
 import { getConnectDenyReason, type ConnectDenyReason } from '../utils/taskflowConnectRules'
 
@@ -994,9 +999,11 @@ export const useFlowEditorStore = create<FlowEditorState>((set, get) => ({
   refreshContents: async () => {
     const { groupId, siteId, nodes, edges, viewport, flowMode } = get()
 
-    // 최신 콘텐츠 목록 조회 → 노드 content* 필드 갱신
-    const available = await fetchAvailableContents(groupId, siteId)
-    const { nodes: nextNodes, changed, missing } = refreshContentNodes(nodes, available)
+    const contentsIdsInNodes = getContentIdsInNodes(nodes)
+
+    const { updatedContents, missingContents } = await fetchUpdatedContents(groupId, siteId, contentsIdsInNodes)
+
+    const { nodes: nextNodes, changed, missing } = refreshContentNodes(nodes, updatedContents, missingContents)
 
     // 실제 바뀐 게 있을 때만 커밋(히스토리/undo + dirty)
     if (changed.length > 0) {
@@ -1128,9 +1135,7 @@ export const useFlowEditorStore = create<FlowEditorState>((set, get) => ({
     const targetId = String(id)
 
     set((state) => ({
-      nodes: state.nodes.map((node) =>
-        String(node.id) === targetId ? { ...node, selected: true } : node
-      ),
+      nodes: state.nodes.map((node) => (String(node.id) === targetId ? { ...node, selected: true } : node)),
       selectedNodeId: state.selectedNodeId === targetId ? state.selectedNodeId : null,
       selectedEdgeId: null
     }))
@@ -1141,9 +1146,7 @@ export const useFlowEditorStore = create<FlowEditorState>((set, get) => ({
     const targetId = String(id)
 
     set((state) => ({
-      edges: state.edges.map((edge) =>
-        String(edge.id) === targetId ? { ...edge, selected: true } : edge
-      ),
+      edges: state.edges.map((edge) => (String(edge.id) === targetId ? { ...edge, selected: true } : edge)),
       selectedEdgeId: state.selectedEdgeId === targetId ? state.selectedEdgeId : null,
       selectedNodeId: null
     }))
@@ -1292,7 +1295,8 @@ export const useFlowEditorStore = create<FlowEditorState>((set, get) => ({
     const { nodes, edges, viewport, flowMode } = get()
 
     // id 가 'start' 가 아닌 예전 정의도 있어 노드 타입까지 함께 본다. Start 는 어떤 경우에도 남긴다.
-    const isStartNode = (node: Node) => isStartNodeId(String(node.id)) || String((node as any)?.type ?? '') === 'startNode'
+    const isStartNode = (node: Node) =>
+      isStartNodeId(String(node.id)) || String((node as any)?.type ?? '') === 'startNode'
     const startNodes = nodes.filter((node) => isStartNode(node))
     if (startNodes.length === nodes.length && edges.length === 0) return
 
@@ -1405,16 +1409,16 @@ export const useFlowEditorStore = create<FlowEditorState>((set, get) => ({
     if (changes.length === 0) return
 
     const removedEdgeIds = new Set(
-      changes
-        .filter((c) => c.type === 'remove' && 'id' in c)
-        .map((c) => String((c as any).id))
+      changes.filter((c) => c.type === 'remove' && 'id' in c).map((c) => String((c as any).id))
     )
 
     const hasMeaningfulChange = changes.some((c) => c.type !== 'select')
     const nextEdges = applyEdgeChanges(changes, get().edges)
 
-    const removedEdges = removedEdgeIds.size > 0 ? get().edges.filter((edge) => removedEdgeIds.has(String(edge.id))) : []
-    const nextNodes = removedEdges.length > 0 ? adjustParallelCountsForRemovedChildren(get().nodes, removedEdges) : get().nodes
+    const removedEdges =
+      removedEdgeIds.size > 0 ? get().edges.filter((edge) => removedEdgeIds.has(String(edge.id))) : []
+    const nextNodes =
+      removedEdges.length > 0 ? adjustParallelCountsForRemovedChildren(get().nodes, removedEdges) : get().nodes
 
     if (!hasMeaningfulChange) {
       set({ nodes: nextNodes, edges: nextEdges })
@@ -1561,7 +1565,10 @@ export const useFlowEditorStore = create<FlowEditorState>((set, get) => ({
     const prev = makeSnapshot(nodes, edges, viewport, get().flowMode)
 
     const removedChildEdges = edges.filter(
-      (edge) => String(edge.sourceHandle ?? '') === 'left' && !targets.has(String(edge.source)) && targets.has(String(edge.target))
+      (edge) =>
+        String(edge.sourceHandle ?? '') === 'left' &&
+        !targets.has(String(edge.source)) &&
+        targets.has(String(edge.target))
     )
 
     const nextNodes = adjustParallelCountsForRemovedChildren(

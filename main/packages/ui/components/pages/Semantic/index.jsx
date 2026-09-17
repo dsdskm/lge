@@ -31,12 +31,7 @@ const OBSTACLE_SHAPE_POINT = 'POINT'
 const OBSTACLE_SHAPE_LINE = 'LINE'
 const OBSTACLE_SHAPE_RECTANGLE = 'RECTANGLE'
 const OBSTACLE_SHAPE_POLYGON = 'POLYGON'
-const OBSTACLE_SHAPES = [
-  OBSTACLE_SHAPE_POINT,
-  OBSTACLE_SHAPE_LINE,
-  OBSTACLE_SHAPE_RECTANGLE,
-  OBSTACLE_SHAPE_POLYGON
-]
+const OBSTACLE_SHAPES = [OBSTACLE_SHAPE_POINT, OBSTACLE_SHAPE_LINE, OBSTACLE_SHAPE_RECTANGLE, OBSTACLE_SHAPE_POLYGON]
 
 /**
  * 장애물 타입 — 로봇과 약속된 정수 enum(0~9)이다.
@@ -114,6 +109,9 @@ const SemanticPage = ({
   const [loading, setLoading] = useState(false)
   const [mode, setMode] = useState('MODE_LIST')
   const [selectedRow, setSeletedRow] = useState(null)
+  // 지도에서 직접 짚어 만드는 새 POI 의 시작 좌표 — '추가' 버튼으로 만들 때는 없다(null).
+  // SemanticDetail 의 initialPose 로 넘어간다(로봇 현재 위치보다 우선한다).
+  const [createInitialPose, setCreateInitialPose] = useState(null)
   const [pois, setPois] = useState([])
   const [workingPois, setWorkingPois] = useState([])
   // Table 의 operation 필터(IN-USE/WORKING). SemanticTable 은 상세 진입 시 언마운트되므로
@@ -200,17 +198,14 @@ const SemanticPage = ({
    *
    * 그리기 모드는 여기서 끈다 — 모달이 열린 동안 지도 클릭이 또 도형을 만들면 안 된다.
    */
-  const handleObstacleDrawn = useCallback(
-    (drawn) => {
-      setPendingObstacle({
-        shape: drawn.shape ?? OBSTACLE_SHAPE_RECTANGLE,
-        points: drawn.points ?? []
-      })
-      setPendingName('')
-      setDrawingShape(null)
-    },
-    []
-  )
+  const handleObstacleDrawn = useCallback((drawn) => {
+    setPendingObstacle({
+      shape: drawn.shape ?? OBSTACLE_SHAPE_RECTANGLE,
+      points: drawn.points ?? []
+    })
+    setPendingName('')
+    setDrawingShape(null)
+  }, [])
 
   /** 모달 확인 — 작업본에 넣는다. obsId(로봇 쪽 [type,id] 의 id)는 BE 가 타입별로 발급한다. */
   const handlePendingConfirm = useCallback(() => {
@@ -464,6 +459,19 @@ const SemanticPage = ({
 
   const handleCreate = () => {
     console.log('onCreate')
+    // 목록의 '추가' 버튼으로 만드는 POI 는 지도에서 짚은 좌표가 없다 — 이전에 지도에서 짚어
+    // 만들다 취소한 좌표가 남아 있으면 안 되므로 비운다.
+    setCreateInitialPose(null)
+    setSeletedRow(null)
+    setMode('MODE_DETAIL')
+  }
+
+  /**
+   * 지도를 짚어 그 자리에 POI 를 만든다 — 앱의 지도 말풍선(mapSlot)이 호출한다.
+   * pose 는 앱이 지도 클릭으로 잡은 좌표다({ x, y, yaw? }, 로봇/지도와 같은 프레임).
+   */
+  const handleCreateAt = (pose) => {
+    setCreateInitialPose(pose ?? null)
     setSeletedRow(null)
     setMode('MODE_DETAIL')
   }
@@ -472,6 +480,7 @@ const SemanticPage = ({
     console.log('handleCreated newObj', newObj)
     setWorkingPois((prev) => [...prev, newObj])
 
+    setCreateInitialPose(null)
     setSeletedRow(null)
     setMode('MODE_LIST')
     setOperationMode('WORKING')
@@ -529,6 +538,7 @@ const SemanticPage = ({
   }
 
   const handlePoiCancel = () => {
+    setCreateInitialPose(null)
     setSeletedRow(null)
     setMode('MODE_LIST')
   }
@@ -604,7 +614,15 @@ const SemanticPage = ({
                   onObstacleShapeChange: handleObstacleShapeChange,
                   obstacleShapeLabel: t('obstacleShape'),
                   obstacleDrawHint,
-                  obstaclePointsLabel: t('obstacleColumns.points')
+                  obstaclePointsLabel: t('obstacleColumns.points'),
+                  // 폴리곤을 손가락으로 찍는 중에는 우클릭/Enter/Esc 를 쓸 수 없다 — 지도 위
+                  // 완료/다시 찍기 버튼(MapCanvas)의 라벨을 여기서 번역해 넘긴다.
+                  obstaclePolygonFinishLabel: t('obstaclePolygonFinish'),
+                  obstaclePolygonRestartLabel: t('obstaclePolygonRestart'),
+                  // 지도 말풍선의 'POI 등록' 버튼 — 탭한 좌표로 상세(생성) 모달을 연다.
+                  // POI 타입(isObstacleType===false) + WORKING(isWorking) 조건에서만 의미가 있다 —
+                  // 가상 장애물 화면과 IN-USE(저장된 결과를 보는 읽기 전용 화면)에는 버튼 자체를 넘기지 않는다.
+                  onCreatePoiAt: !isObstacleType && isWorking ? handleCreateAt : undefined
                 })
               : (mapSlot ?? 'Map')}
           </Section>
@@ -670,6 +688,7 @@ const SemanticPage = ({
               row={selectedRow}
               readOnly={mode === 'MODE_VIEW'}
               robotPose={robotPose}
+              initialPose={createInitialPose}
               onPoiCreated={handleCreated}
               onPoiEdited={handleEdited}
               onPoiCancel={handlePoiCancel}

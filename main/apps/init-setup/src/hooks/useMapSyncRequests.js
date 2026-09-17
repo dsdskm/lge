@@ -75,8 +75,16 @@ export function useMapSyncRequests({ type, autoResume = true, onSettled } = {}) 
       .filter((request) => !isSettled(request.status))
       .map((request) => request.requestId)
 
-  /** 상태를 병합 반영하고, 종료 상태로 처음 넘어간 요청만 onSettled 로 알린다. */
-  const merge = useCallback((raw, fallback) => {
+  /**
+   * 상태를 병합 반영하고, 종료 상태로 처음 넘어간 요청만 onSettled 로 알린다.
+   *
+   * @param {boolean} [silent] true 면 onSettled 를 부르지 않는다 — refresh() 가 화면 진입
+   *   시점에 이미 종료된 과거 요청을 이력으로 불러올 때 쓴다. silent 없이 병합하면 "previous
+   *   가 아직 없다" 는 이유만으로 오래전에 끝난 요청도 "방금 종료됨" 으로 오인해 완료/실패
+   *   토스트가 뜬다 — 화면에 들어오기만 해도 다운로드를 시도한 것처럼 보이는 원인이었다.
+   *   상태 표시(Tag)는 이력이든 실시간이든 항상 반영한다 — silent 는 알림에만 영향을 준다.
+   */
+  const merge = useCallback((raw, fallback, silent = false) => {
     const next = normalize(raw, fallback)
     if (!next.requestId) return
     const previous = requestsRef.current[next.requestId]
@@ -89,7 +97,7 @@ export function useMapSyncRequests({ type, autoResume = true, onSettled } = {}) 
     requestsRef.current = { ...requestsRef.current, [next.requestId]: next }
     setRequests(requestsRef.current)
 
-    if (isSettled(next.status) && !isSettled(previous?.status)) onSettledRef.current?.(next)
+    if (!silent && isSettled(next.status) && !isSettled(previous?.status)) onSettledRef.current?.(next)
   }, [])
 
   /** REST 로 현재 상태를 확인한다(WS 경합·유실 보정). 실패는 조용히 넘긴다 — 다음 기회에 다시 본다. */
@@ -132,7 +140,9 @@ export function useMapSyncRequests({ type, autoResume = true, onSettled } = {}) 
       const response = await listRequests({ ...(type ? { type } : {}), limit: 100 })
       if (!aliveRef.current) return
       const rows = response?.data ?? []
-      rows.forEach((row) => merge(row))
+      // silent: 이 목록은 화면 진입 시점의 과거 이력이다 — 이미 끝난 요청까지 "방금 종료됨" 으로
+      // 알리면 안 된다(merge 주석 참고). 아직 pending 인 요청은 이후 실제 종료 시 정상 알린다.
+      rows.forEach((row) => merge(row, undefined, true))
       const ids = rows.filter((row) => !isSettled(row.status)).map((row) => row.requestId)
       if (ids.length > 0) send({ op: 'subscribe', requestIds: ids })
     } catch (error) {

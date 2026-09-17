@@ -20,7 +20,7 @@ import {
   ErrorText
 } from './styles'
 import { saveRobotInfo } from '@/apis/defaultSetup'
-import { advanceSetupProgress, SETUP_STEPS } from '@/utils/setupProgress'
+import { advanceSetupProgress, SETUP_STEP_KEYS } from '@/utils/setupProgress'
 
 const RobotInfo = () => {
   const navigate = useNavigate()
@@ -38,7 +38,7 @@ const RobotInfo = () => {
     try {
       const response = await saveRobotInfo({ robot_name: robotName })
       if (response?.registered === false) throw new Error('registration_failed')
-      await advanceSetupProgress(SETUP_STEPS.MAP_SCAN)
+      await advanceSetupProgress(SETUP_STEP_KEYS.DOWNLOAD)
       // 맵 설정 그룹의 입구로 보낸다 — '/download' 은 화면이 없는 부모 경로라 그룹 첫 화면으로
       // 리다이렉트된다(router/routes.jsx mapIndex).
       navigate('/download', { replace: true })

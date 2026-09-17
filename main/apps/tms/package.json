@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:device": "vite --mode device",
     "build": "vite build --mode prod",
     "build:dev": "vite build --mode dev",
     "build:qa": "vite build --mode qa",
+    "build:device": "vite build --mode device",
     "format": "npx prettier . --write",
     "lint": "eslint .",
     "preview": "vite preview",

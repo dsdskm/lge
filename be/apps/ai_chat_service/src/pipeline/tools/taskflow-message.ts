@@ -89,6 +89,8 @@ export const TASKFLOW_MESSAGE_KEY = {
   editUnknownProperties: 'ui.edit.unknownProperties',
   /** 동시 실행 제어 노드 아래에서 같은 Task 라 붙이지 않았음을 알리는 문구. */
   editDuplicateConcurrent: 'ui.edit.duplicateConcurrent',
+  /** 요청한 이름이 없어 가장 가까운 이름의 노드로 대신 넣었음을 알리는 문구. */
+  editSubstituted: 'ui.edit.substituted',
 } as const
 
 /** 노드별 지침 키. tool 은 TASKFLOW_TOOL_KEY 의 값('tool.compose')이 아니라 짧은 이름을 쓴다. */

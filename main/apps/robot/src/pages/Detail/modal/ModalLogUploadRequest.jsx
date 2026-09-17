@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import styled from 'styled-components'
-import { Modal, ModalButton, Calendar, Dropdown } from '@repo/ui'
+import { Modal, ModalButton, Calendar, Dropdown, Checkbox } from '@repo/ui'
 import { AlertTriangle } from '@/assets/icon'
 
 // ── Styled Components ──────────────────────────────────────────
@@ -74,7 +74,7 @@ const FieldRow = styled.div`
 
 const hourOptions = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
 const minuteOptions = ['00', '30']
-const durationOptions = ['30', '60']
+const durationOptions = ['20', '30', '60', '120', '180', '240']
 
 const toDateKey = (d) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -87,7 +87,8 @@ const buildDefaults = () => {
     date: now,
     hour: String(now.getHours()).padStart(2, '0'),
     minute: String(roundDownToStep(now.getMinutes(), 30)).padStart(2, '0'),
-    duration: '30'
+    duration: '30',
+    includeSystemTextLog: false
   }
 }
 
@@ -97,7 +98,7 @@ const buildDefaults = () => {
  * Props
  *  isOpen     : boolean
  *  onClose    : () => void
- *  onConfirm  : ({ deviceId, startDate, startHour, startMinute, duration }) => void
+ *  onConfirm  : ({ deviceId, startDate, startHour, startMinute, duration, includeSystemTextLog }) => void
  *  deviceInfo : object — deviceInfo.name / deviceInfo.deviceId 사용
  *  t          : i18n translate fn
  */
@@ -106,6 +107,7 @@ const ModalLogUploadRequest = ({ isOpen, onClose, onConfirm, deviceInfo, t }) =>
   const [startHour, setStartHour] = useState(() => buildDefaults().hour)
   const [startMinute, setStartMinute] = useState(() => buildDefaults().minute)
   const [duration, setDuration] = useState(() => buildDefaults().duration)
+  const [includeSystemTextLog, setIncludeSystemTextLog] = useState(() => buildDefaults().includeSystemTextLog)
 
   // 최근 1일(오늘/어제)만 선택 가능
   const allowedDateKeys = useMemo(() => {
@@ -122,6 +124,7 @@ const ModalLogUploadRequest = ({ isOpen, onClose, onConfirm, deviceInfo, t }) =>
       setStartHour(defaults.hour)
       setStartMinute(defaults.minute)
       setDuration(defaults.duration)
+      setIncludeSystemTextLog(defaults.includeSystemTextLog)
     }
   }, [isOpen])
 
@@ -135,7 +138,8 @@ const ModalLogUploadRequest = ({ isOpen, onClose, onConfirm, deviceInfo, t }) =>
       startDate,
       startHour,
       startMinute,
-      duration
+      duration,
+      includeSystemTextLog
     })
   }
 
@@ -196,12 +200,20 @@ const ModalLogUploadRequest = ({ isOpen, onClose, onConfirm, deviceInfo, t }) =>
           </FieldRow>
         </FieldGroup>
 
-        <FieldGroup style={{ marginBottom: 0 }}>
+        <FieldGroup>
           <FieldSubLabel className="typographyBody6">{t('durationTime')}</FieldSubLabel>
           <Dropdown
             value={duration}
             options={durationOptions.map((d) => ({ name: t('minuteUnit', { n: d }), value: d }))}
             onChange={setDuration}
+          />
+        </FieldGroup>
+
+        <FieldGroup style={{ marginBottom: 0 }}>
+          <Checkbox
+            label={t('includeSystemTextLog')}
+            checked={includeSystemTextLog}
+            onChange={(e) => setIncludeSystemTextLog(e.target.checked)}
           />
         </FieldGroup>
       </div>

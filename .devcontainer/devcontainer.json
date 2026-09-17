@@ -23,7 +23,6 @@
     "5173": { "label": "Main App (Vite)", "onAutoForward": "open", "visibility": "public" },
     "5174": { "label": "OTA App", "onAutoForward": "open", "visibility": "public" },
     "5175": { "label": "Robot App", "onAutoForward": "open", "visibility": "public" },
-    "5176": { "label": "EBME App", "onAutoForward": "open", "visibility": "public" },
     "5177": { "label": "Setup App", "onAutoForward": "open", "visibility": "public" },
     "5178": { "label": "CMS App", "onAutoForward": "open", "visibility": "public" },
     "5179": { "label": "TMS App", "onAutoForward": "open", "visibility": "public" },

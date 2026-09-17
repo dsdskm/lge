@@ -221,19 +221,6 @@ const DownloadTable = () => {
     { name: t('common.floor'), selector: (row) => row.floor, sortable: 'true' },
     { name: t('common.area'), selector: (row) => row.area, sortable: 'true' },
     {
-      name: t('download.statusColumn'),
-      // 정렬은 상태 문자열 기준으로 둔다(셀은 Tag 라서 selector 가 따로 필요하다).
-      selector: (row) => requestByAreaId[row.areaId]?.status ?? '',
-      sortable: 'true',
-      cell: (row) => {
-        const request = requestByAreaId[row.areaId]
-        if (!request) return <span>-</span>
-        return (
-          <Tag theme={STATUS_THEME[request.status] ?? 'light'}>{t(`download.status.${request.status}`)}</Tag>
-        )
-      }
-    },
-    {
       name: t('download.column'),
       cell: (row) => {
         // 같은 구역의 요청이 진행 중이면 중복 발신을 막는다 — 관제 응답이 어느 요청의 것인지
@@ -245,6 +232,17 @@ const DownloadTable = () => {
             {t('download.action')}
           </Button>
         )
+      }
+    },
+    {
+      name: t('download.statusColumn'),
+      // 정렬은 상태 문자열 기준으로 둔다(셀은 Tag 라서 selector 가 따로 필요하다).
+      selector: (row) => requestByAreaId[row.areaId]?.status ?? '',
+      sortable: 'true',
+      cell: (row) => {
+        const request = requestByAreaId[row.areaId]
+        if (!request) return <span>-</span>
+        return <Tag theme={STATUS_THEME[request.status] ?? 'light'}>{t(`download.status.${request.status}`)}</Tag>
       }
     }
   ]

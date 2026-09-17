@@ -1,4 +1,9 @@
 {
   "home": "Home",
-  "tms": "TMS"
+  "tms": "TMS",
+  "SideBar": {
+    "gnb": {
+      "actions": "Task Management"
+    }
+  }
 }

@@ -2,6 +2,8 @@ import type { ReactNode } from 'react'
 import { Routes, Route } from 'react-router-dom'
 import { AiAssistantPanel, MainLayout } from '@repo/ui'
 import RouteSync from './tms.routeSync'
+import { isDeviceProfile } from '@/common/profile'
+import StandaloneLayout from '../adapters/components/standalone'
 
 type RouteItem = {
   name?: string
@@ -53,6 +55,8 @@ const Router = ({ allRoutes, appPrefix, processedAppRoutes, headerRoutes, appT }
                       <AiAssistantPanel className="aiAssistantPanel" />
                     </div>
                   </div>
+                ) : isDeviceProfile ? (
+                  <StandaloneLayout>{item.element}</StandaloneLayout>
                 ) : (
                   <MainLayout
                     currentApp={appPrefix}

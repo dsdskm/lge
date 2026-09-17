@@ -16,6 +16,7 @@ import type { TaskSemantics } from '../../features/taskflow/service/property-tms
 import {
   buildContentMatchEntries,
   canUseStrippedKey,
+  findContentBySharedWord,
   matchContentInText,
   toMatchKey,
   type TaskContentRef,
@@ -41,6 +42,8 @@ export type NlComposeClause = {
 export type NlComposeResult = {
   nodes: NlComposeNode[]
   clauses: NlComposeClause[]
+  /** 이름을 못 찾아 낱말이 겹치는 콘텐츠로 대체한 절. 응답에 그대로 알린다. */
+  substituted: Array<{ requested: string; resolved: string }>
 }
 
 export type NlComposeRules = {
@@ -222,6 +225,7 @@ export function parseComposeNodesFromMessage(
   const suffixesByTask = buildSuffixMap(tasks)
   const parsed: NlComposeClause[] = []
   const nodes: NlComposeNode[] = []
+  const substituted: Array<{ requested: string; resolved: string }> = []
 
   for (const [clauseIndex, clause] of clauses.entries()) {
     const triggerMatch = findTaskByTrigger(clause, tasks)
@@ -280,8 +284,34 @@ export function parseComposeNodesFromMessage(
       continue
     }
 
+    // 이름도 Task 표현도 못 잡은 절("작별 인사 해줘")은 낱말이 겹치는 콘텐츠로 대체한다.
+    // 절을 버리면 그 동작이 응답에도 캔버스에도 남지 않아 무엇이 빠졌는지 알 수 없다.
+    const cleanedClause = rules.clauseNoisePhrases
+      .map((value) => String(value ?? '').trim())
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length)
+      .reduce((text, phrase) => text.split(phrase).join(' '), String(clause ?? ''))
+    const sharedWordContent = findContentBySharedWord(cleanedClause, contents)
+    if (sharedWordContent) {
+      parsed.push({
+        clause,
+        taskName: sharedWordContent.taskName,
+        contentName: sharedWordContent.contentName,
+        matchedBy: 'content',
+        matchedPhrase: sharedWordContent.contentName,
+      })
+      nodes.push({
+        depth: 0,
+        taskName: sharedWordContent.taskName,
+        contentName: sharedWordContent.contentName,
+        clauseIndex,
+      })
+      substituted.push({ requested: cleanedClause.trim() || clause, resolved: sharedWordContent.contentName })
+      continue
+    }
+
     parsed.push({ clause })
   }
 
-  return { nodes, clauses: parsed }
+  return { nodes, clauses: parsed, substituted }
 }

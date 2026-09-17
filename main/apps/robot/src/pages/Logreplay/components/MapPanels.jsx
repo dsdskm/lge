@@ -289,7 +289,12 @@ function MapPanels({
   // ✅ 두 센서 차트가 동일한 x축(전체 주행 구간, 절대 초)을 쓰도록 고정
   //    → 차트별 데이터 범위 차이로 재생 커서가 한쪽에만 보이던 문제 해결
   const chartXRange = useMemo(() => {
-    if (typeof t0EpochMs === 'number' && Number.isFinite(t0EpochMs) && typeof durationMs === 'number' && durationMs > 0) {
+    if (
+      typeof t0EpochMs === 'number' &&
+      Number.isFinite(t0EpochMs) &&
+      typeof durationMs === 'number' &&
+      durationMs > 0
+    ) {
       const s0 = t0EpochMs / 1000
       return [s0, s0 + durationMs / 1000]
     }
@@ -323,8 +328,9 @@ function MapPanels({
   //       거부한 것이므로, pose가 있어도 캔버스에 아무것도 그리지 않고 안내 문구만 계속 표시한다.
   const leftInteractiveReady = loadPhase === 'ready' && !gridOversized && (leftReadyByData || leftHasGrid)
 
-  // ✅ grid/pose 둘 다 "이 로그엔 없음"이 확정된 경우 — 계속 기다리는 스피너 대신 안내 문구로 전환
-  const leftNoData = loadPhase === 'ready' && !!gridUnavailable && !!poseUnavailable
+  // ✅ grid가 "이 로그엔 없음"이 확정된 경우 — 계속 기다리는 스피너 대신 안내 문구로 전환
+  //    (pose가 있어도 map 데이터가 없으면 지도/경로를 표시할 수 없으므로 gridUnavailable만으로 판정)
+  const leftNoData = loadPhase === 'ready' && !!gridUnavailable
 
   const leftOverlayText = useMemo(() => {
     if (loadPhase === 'error') return t('logreplay.map.loadFailed')
@@ -424,69 +430,69 @@ function MapPanels({
           {/* ✅ ready일 때만 차트 렌더 (uPlot이 0px에서 그려지는 문제 방지) */}
           {rightInteractiveReady ? (
             chartLoading ? (
-                <div
-                  style={{
-                    width: '100%',
-                    height: 220 * 2 + 12,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#888',
-                    fontSize: 13
-                  }}
-                >
-                  {t('logreplay.map.chartDataLoading')}
-                </div>
-              ) : (
-                <div
-                  style={{
-                    display: 'grid',
-                    // ✅ 세로: '1fr'은 트랙 최소값이 auto(콘텐츠 min-content)라, uPlot이 setSize로
-                    //    루트에 박는 명시적 높이가 트랙 최소값이 되어 "전체 높이로 고착"된다.
-                    //    minmax(0,1fr)로 최소값 0 고정 → 각 차트가 정확히 절반.
-                    gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)',
-                    // ✅ 가로: 컬럼을 명시하지 않으면 암시적 컬럼이 auto라 uPlot 명시 폭보다
-                    //    작게 줄지 못해, 컨테이너가 좁아져도 옛 넓은 폭에 고착(우측 잘림)된다.
-                    //    minmax(0,1fr)로 컬럼도 0까지 줄 수 있게 한다.
-                    gridTemplateColumns: 'minmax(0, 1fr)',
-                    gap: 12,
-                    width: '100%',
-                    height: '100%',
-                    // ✅ 부모(mapBody)가 flex row이므로 이 그리드는 flex 아이템이다.
-                    //    flex 아이템 기본 min-width/min-height: auto(콘텐츠 min-content)라
-                    //    콘텐츠(uPlot 명시 폭/높이)보다 작게 못 줄어든다 → 0으로 풀어 shrink 허용.
-                    minWidth: 0,
-                    minHeight: 0
-                  }}
-                >
-                  <SensorChart
-                    sampleMode={false}
-                    data={odomChart1}
-                    title="ODOM (derived) Velocity"
-                    labels={VEL_LABELS}
-                    colors={VEL_COLORS}
-                    playheadSec={playheadSec}
-                    t0EpochMs={t0EpochMs}
-                    xRange={chartXRange}
-                    emptyMessage={noSensorMsg}
-                  />
-                  <SensorChart
-                    sampleMode={false}
-                    data={odomChart2}
-                    title="ODOM Pose"
-                    labels={POSE_LABELS}
-                    colors={POSE_COLORS}
-                    playheadSec={playheadSec}
-                    t0EpochMs={t0EpochMs}
-                    xRange={chartXRange}
-                    emptyMessage={noSensorMsg}
-                  />
-                </div>
-              )
+              <div
+                style={{
+                  width: '100%',
+                  height: 220 * 2 + 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#888',
+                  fontSize: 13
+                }}
+              >
+                {t('logreplay.map.chartDataLoading')}
+              </div>
             ) : (
-              // overlay가 덮을 거지만, 레이아웃 흔들림 방지용 빈 자리(선택)
-              <div style={{ width: '100%', height: 220 * 2 + 12 }} />
-            )}
+              <div
+                style={{
+                  display: 'grid',
+                  // ✅ 세로: '1fr'은 트랙 최소값이 auto(콘텐츠 min-content)라, uPlot이 setSize로
+                  //    루트에 박는 명시적 높이가 트랙 최소값이 되어 "전체 높이로 고착"된다.
+                  //    minmax(0,1fr)로 최소값 0 고정 → 각 차트가 정확히 절반.
+                  gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)',
+                  // ✅ 가로: 컬럼을 명시하지 않으면 암시적 컬럼이 auto라 uPlot 명시 폭보다
+                  //    작게 줄지 못해, 컨테이너가 좁아져도 옛 넓은 폭에 고착(우측 잘림)된다.
+                  //    minmax(0,1fr)로 컬럼도 0까지 줄 수 있게 한다.
+                  gridTemplateColumns: 'minmax(0, 1fr)',
+                  gap: 12,
+                  width: '100%',
+                  height: '100%',
+                  // ✅ 부모(mapBody)가 flex row이므로 이 그리드는 flex 아이템이다.
+                  //    flex 아이템 기본 min-width/min-height: auto(콘텐츠 min-content)라
+                  //    콘텐츠(uPlot 명시 폭/높이)보다 작게 못 줄어든다 → 0으로 풀어 shrink 허용.
+                  minWidth: 0,
+                  minHeight: 0
+                }}
+              >
+                <SensorChart
+                  sampleMode={false}
+                  data={odomChart1}
+                  title="ODOM (derived) Velocity"
+                  labels={VEL_LABELS}
+                  colors={VEL_COLORS}
+                  playheadSec={playheadSec}
+                  t0EpochMs={t0EpochMs}
+                  xRange={chartXRange}
+                  emptyMessage={noSensorMsg}
+                />
+                <SensorChart
+                  sampleMode={false}
+                  data={odomChart2}
+                  title="ODOM Pose"
+                  labels={POSE_LABELS}
+                  colors={POSE_COLORS}
+                  playheadSec={playheadSec}
+                  t0EpochMs={t0EpochMs}
+                  xRange={chartXRange}
+                  emptyMessage={noSensorMsg}
+                />
+              </div>
+            )
+          ) : (
+            // overlay가 덮을 거지만, 레이아웃 흔들림 방지용 빈 자리(선택)
+            <div style={{ width: '100%', height: 220 * 2 + 12 }} />
+          )}
 
           {/* ✅ 우측 Overlay: 좌측과 동일한 로딩 Sync */}
           {showRightOverlay && (

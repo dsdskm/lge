@@ -1,4 +1,9 @@
 {
   "home": "ホーム",
-  "tms": "TMS"
+  "tms": "TMS",
+  "SideBar": {
+    "gnb": {
+      "actions": "Task 管理"
+    }
+  }
 }

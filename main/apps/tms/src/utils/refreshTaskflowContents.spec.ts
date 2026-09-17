@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: LicenseRef-LGE-Proprietary
  */
 
-import { refreshTaskflowContents, type AvailableContent } from './refreshTaskflowContents'
+import { getContentIdsInTaskflow, refreshTaskflowContents, type AvailableContent } from './refreshTaskflowContents'
 import oldTaskflow from '@/bt/__fixtures__/old-contents-taskflow.json'
 
 // 갱신 대상으로 삼을 콘텐츠(MOTION). 이 콘텐츠의 version/value 를 서버에서 바꾼 상황을 시뮬레이션한다.
@@ -25,8 +25,20 @@ function buildAvailableContents(): AvailableContent[] {
 }
 
 const findContent = (flow: any, id: number) => (flow.contents as any[]).find((c) => c.id === id)
-const findNodeByContentId = (flow: any, id: number) =>
-  (flow.nodes as any[]).find((n) => n?.data?.contentId === id)
+const findNodeByContentId = (flow: any, id: number) => (flow.nodes as any[]).find((n) => n?.data?.contentId === id)
+
+describe('getContentIdsInTaskflow', () => {
+  it('taskflow에 있는 컨텐츠 id/version map을 제공한다', () => {
+    const result = getContentIdsInTaskflow(oldTaskflow as any)
+    const arrayResult = Array.from(result, ([id, value]) => ({ id, version: value }))
+
+    expect(arrayResult.length).toBe(4)
+    expect(arrayResult[3]).toEqual({
+      id: 17,
+      version: '01KVYD70TXN8YQXTHHJ2ZY4TV1'
+    })
+  })
+})
 
 describe('refreshTaskflowContents', () => {
   it('버전이 바뀐 콘텐츠만 changed 로 보고한다', () => {

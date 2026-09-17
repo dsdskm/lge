@@ -338,31 +338,31 @@ export function requestCallsTask(requestText: string, taskName: string): boolean
 /** 콘텐츠 이름이 다른 Task 를 부르는 말과 같은지.
  * PlaySound 콘텐츠 "이동" 처럼 이름 자체가 다른 Task 의 동작 표현(MoveTo 의 "이동")인 경우다.
  */
-function nameLooksLikeOtherTaskWord(contentName: string, taskName: string): boolean {
-  // 괄호/접미어를 뗀 형태까지 본다. "이동(g)" 는 떼면 MoveTo 의 "이동" 과 같아진다.
-  const nameKeys = buildContentMatchEntries(contentName, readNameSuffixPhrases(taskName)).map((entry) => entry.key)
-  if (nameKeys.length === 0) return false
+function keyLooksLikeOtherTaskWord(key: string, taskName: string): boolean {
+  if (!key) return false
 
   const ownKey = toMatchKey(taskName)
   return (getPropertyTmsStore()?.list() ?? []).some((task) => {
     if (toMatchKey(task.taskName) === ownKey) return false
     const words = [task.taskName, ...(task.triggerPhrases ?? []), ...readNameSuffixPhrases(task.taskName)]
-    return words.some((word) => nameKeys.includes(toMatchKey(word)))
+    return words.some((word) => toMatchKey(word) === key)
   })
 }
 
 /** 이 비교 키를 요청에 써도 되는지.
  *  - 접미어를 떼어 만든 짧은 키("이동 음악" -> "이동")
- *  - 이름 자체가 다른 Task 의 동작 표현인 콘텐츠(PlaySound "이동")
+ *  - 키 자체가 다른 Task 의 동작 표현인 경우(PlaySound 콘텐츠 "이동" 과 MoveTo 의 "이동")
  * 둘 다 흔한 낱말에 걸려 엉뚱한 노드를 만든다. 요청이 그 Task 를 부르고 있을 때만 인정한다.
+ * 판단은 키 단위다. "이동(g)" 처럼 이름 그대로는 겹치지 않는 키를 막으면
+ * 요청에 이름을 그대로 적었는데도 그 콘텐츠를 못 찾는다.
  */
 export function canUseStrippedKey(
   entry: ContentMatchKey,
   requestText: string,
   taskName: string,
-  contentName = '',
+  _contentName = '',
 ): boolean {
-  if (nameLooksLikeOtherTaskWord(contentName, taskName) && !requestCallsTask(requestText, taskName)) return false
+  if (keyLooksLikeOtherTaskWord(entry.key, taskName) && !requestCallsTask(requestText, taskName)) return false
   if (!entry.stripped) return true
   if (entry.key.length >= STRIPPED_KEY_SAFE_LENGTH) return true
 
@@ -446,6 +446,33 @@ export function findClosestContent(
   if (scored.some((row) => row.distance === best.distance && row.row.contentId !== best.row.contentId)) return undefined
 
   return best.row
+}
+
+/** 이름이 하나도 안 맞을 때 마지막으로 쓰는 대체 후보.
+ * 요청 이름의 낱말이 콘텐츠 이름에 들어 있는 것을 고른다("작별 인사" -> "[부산]환영인사" 의 "인사").
+ * 이름을 못 찾았다고 노드를 버리면 뒤 절이 통째로 사라져 무엇이 빠졌는지도 알 수 없다.
+ * 대체했다는 사실은 호출부가 응답에 남긴다.
+ */
+export function findContentBySharedWord(name: string, contents: TaskContentRef[]): TaskContentRef | undefined {
+  // 낱말은 공백/마침표/괄호로 나눈다. 한 글자 낱말은 아무 이름에나 걸려 제외한다.
+  const words = String(name ?? '')
+    .split(/[\s.,/()[\]{}·・|-]+/)
+    .map((word) => toMatchKey(word))
+    .filter((word) => word.length >= 2)
+  if (words.length === 0) return undefined
+
+  const scored = contents
+    .map((row) => {
+      const contentKey = toMatchKey(row.contentName)
+      const matched = words.filter((word) => contentKey.includes(word))
+      const score = matched.reduce((longest, word) => Math.max(longest, word.length), 0)
+      return { row, score, contentKey }
+    })
+    .filter((row) => row.score > 0)
+    // 낱말이 길게 겹치는 쪽이 먼저, 같으면 이름이 짧은 쪽(군더더기가 적은 쪽)이 먼저다.
+    .sort((a, b) => b.score - a.score || a.contentKey.length - b.contentKey.length)
+
+  return scored[0]?.row
 }
 
 export function resolveTaskAlias(name: string): string {
@@ -833,10 +860,30 @@ export function isConcurrentControlTask(taskName: string): boolean {
  * (얼굴 두 개, 발화 두 개를 동시에 수행할 수는 없다.)
  */
 export function readConcurrentChildTaskNames(graph: CurrentGraph, anchorNodeId: string): string[] {
-  return graph.edges
+  // 바로 붙은 자식만 보면 안 된다. 자식 뒤로 이어진 노드와 그 아래 노드도 이 제어 노드가 돌리는 묶음이다.
+  // (Parallel 자식이 또 제어 노드일 수도 있어 순차/자식 엣지를 모두 따라간다.)
+  const byId = new Map(graph.nodes.map((node) => [String(node.id), node]))
+  const taskNames: string[] = []
+  const seen = new Set<string>([String(anchorNodeId)])
+  const queue = graph.edges
     .filter((edge) => edge.branch && String(edge.source) === String(anchorNodeId))
-    .map((edge) => graph.nodes.find((node) => node.id === edge.target)?.taskName ?? '')
-    .filter(Boolean)
+    .map((edge) => String(edge.target))
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()
+    if (!currentId || seen.has(currentId)) continue
+
+    seen.add(currentId)
+    const taskName = byId.get(currentId)?.taskName ?? ''
+    if (taskName) taskNames.push(taskName)
+
+    for (const edge of graph.edges) {
+      if (String(edge.source) !== currentId) continue
+      queue.push(String(edge.target))
+    }
+  }
+
+  return taskNames
 }
 
 /** Start 에서 시작하는 실행 흐름의 마지막 노드.

@@ -2,7 +2,6 @@
   "SideBar": {
     "gnb": {
       "ota": "S/W 배포",
-      "ebme": "EBME",
       "robot": "로봇 관리",
       "cms": "콘텐츠 관리",
       "tms": "TMS",

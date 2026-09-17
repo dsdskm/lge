@@ -54,6 +54,14 @@ import {
 } from './assistantDraft'
 import { buildFlowOrdinals, parseFlowTarget, pickByFlowOrdinal } from './flowOrder'
 import { applyIfThenElseBranchRoles } from '@/utils/ifThenElseRoles'
+import {
+  resolveTestCaseSlots,
+  verifyCanvasExpectation,
+  type AiTestCase,
+  type AiTestExpectation,
+  type AiTestResolvedCase,
+  type AiTestVerifyResult
+} from './aiTestVerify'
 
 type SaveOverride = { name: string; description: string }
 type MoveToMapEntry = { nodeId: string; mapId: string }
@@ -62,6 +70,14 @@ type MoveToMapEntry = { nodeId: string; mapId: string }
 declare global {
   interface Window {
     __AI_TASKFLOW_CANVAS_APPLY__?: (draft: AssistantDraft) => void
+    /** AI Assistant Test 버튼(임시)이 캔버스 결과를 판정하는 창구. */
+    __AI_TASKFLOW_TEST__?: {
+      reset: () => void
+      /** 케이스의 {{슬롯}} 을 현재 팔레트의 실제 노드 이름으로 채운다. */
+      resolveCase: (testCase: AiTestCase) => AiTestResolvedCase
+      verify: (expectation: AiTestExpectation | undefined) => AiTestVerifyResult
+      buildBt: () => { ok: boolean; error?: string; warnings: string[]; xmlLineCount?: number }
+    }
     __AI_TASKFLOW_CONTEXT__?: {
       taskFlowId: number
       nodes: RFNode[]
@@ -94,6 +110,8 @@ type AssistantStep = {
   taskId?: number | string
   contentId?: number | string
   properties?: Record<string, unknown>
+  /** 서버가 요청한 대상을 못 찾아 같은 Task 의 다른 콘텐츠로 대신 채운 경우의 원래 이름. */
+  placeholderFor?: string
 }
 
 type AssistantDraft = {
@@ -446,6 +464,22 @@ function resolvePaletteItem(step: AssistantStep, palette: PaletteItem[]): Palett
   }
 
   return null
+}
+
+/** 요청한 이름과 실제로 놓인 팔레트 노드 이름이 다르면 그 쌍을 기록한다.
+ * 서버가 같은 Task 의 다른 콘텐츠로 대신 채운 경우(placeholderFor)와
+ * 프론트가 부분 일치로 다른 콘텐츠를 고른 경우 둘 다 사용자에게는 "대체" 라는 같은 사실이다.
+ * 무엇으로 바뀌었는지 안 알려주면 왜 다른 노드가 생겼는지 알 수 없다.
+ */
+function noteStepSubstitution(step: AssistantStep | null | undefined, item: PaletteItem, into: string[]): void {
+  if (!step) return
+
+  const picked = item.kind === 'contentNode' ? String(item.content.name ?? '') : String(item.task.name ?? '')
+  const requested = String(step.placeholderFor ?? step.contentName ?? step.label ?? step.taskName ?? '').trim()
+  if (!picked || !requested) return
+  if (normalizeNameKey(requested) === normalizeNameKey(picked)) return
+
+  into.push(`${requested} → ${picked}`)
 }
 
 function buildLinearFlowDefinitionFromDraft(draft: AssistantDraft, palette: PaletteItem[]) {
@@ -807,6 +841,8 @@ export function applyEditDraftToFlowDefinition(
     data: { ...(edge.data ?? {}) }
   }))
   const rejectedLabels: string[] = []
+  // 요청한 이름과 다른 노드를 놓은 경우("작별 인사" -> "[부산]환영인사"). 응답에 그대로 알린다.
+  const substitutions: string[] = []
 
   const activeNodeIds = buildStartConnectedNodeSet(nextNodes, nextEdges)
 
@@ -1098,6 +1134,7 @@ export function applyEditDraftToFlowDefinition(
       rejectedLabels.push(String(replaceSpec.step?.label ?? '').trim())
       continue
     }
+    noteStepSubstitution(replaceSpec.step, item, substitutions)
 
     for (const targetNode of matchingNodes) {
       const replacementNodeId = String(targetNode.id)
@@ -1207,6 +1244,7 @@ export function applyEditDraftToFlowDefinition(
           rejectedLabels.push(String(fanoutNormalized.label ?? '').trim())
           continue
         }
+        noteStepSubstitution(fanoutNormalized, fanoutItem, substitutions)
 
 
         const fanoutNodeId = `ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -1259,6 +1297,7 @@ export function applyEditDraftToFlowDefinition(
         rejectedLabels.push(String(normalized.label ?? '').trim())
         continue
       }
+      noteStepSubstitution(normalized, item, substitutions)
 
       const maxY = nextNodes.reduce((acc, n) => Math.max(acc, Number(n.position?.y ?? 0)), 0)
       const firstX = Number(nextNodes[0]?.position?.x ?? 200)
@@ -1409,7 +1448,7 @@ export function applyEditDraftToFlowDefinition(
       rejectedLabels.push(String(normalized.label ?? '').trim())
       continue
     }
-
+    noteStepSubstitution(normalized, item, substitutions)
 
     const newNodeId = `ai-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const anchorX = Number(anchorNode.position?.x ?? 0)
@@ -1471,7 +1510,11 @@ export function applyEditDraftToFlowDefinition(
     const findNonOverlappingPosition = (
       desiredX: number,
       desiredY: number,
-      preferVerticalOffset: boolean
+      preferVerticalOffset: boolean,
+      /** 제어 노드의 자식은 기준 노드 아래로만 내려가며 x 를 맞춰 세로로 정렬한다.
+       * 위/좌우로 비켜 두면 "Parallel 자식" 인데 기준 노드 위에 뜨는 노드가 생긴다.
+       */
+      downOnly = false
     ): { x: number; y: number } => {
       const OCCUPY_X_THRESHOLD = 82
       const OCCUPY_Y_THRESHOLD = 62
@@ -1493,7 +1536,9 @@ export function applyEditDraftToFlowDefinition(
         const primary = level * (preferVerticalOffset ? VERTICAL_GAP : HORIZONTAL_GAP)
         const secondary = level * SECONDARY_STEP
 
-        const candidates = preferVerticalOffset
+        const candidates = downOnly
+          ? [{ x: desiredX, y: desiredY + primary }]
+          : preferVerticalOffset
           ? [
               { x: desiredX, y: desiredY + primary },
               { x: desiredX + secondary, y: desiredY + primary },
@@ -1520,7 +1565,7 @@ export function applyEditDraftToFlowDefinition(
     }
 
     const preferVerticalOffset = appendOnly && sourceHandle === 'left' && targetHandle === 'left'
-    const resolvedPos = findNonOverlappingPosition(basePosX, basePosY, preferVerticalOffset)
+    const resolvedPos = findNonOverlappingPosition(basePosX, basePosY, preferVerticalOffset, isChildAppend)
 
     const newNode: RFNode = {
       id: newNodeId,
@@ -1688,6 +1733,7 @@ export function applyEditDraftToFlowDefinition(
     const firstRejected = rejectedLabels.find((label) => String(label ?? '').trim())
     return {
       next: null,
+      substitutions,
       clarification: firstRejected
         ? `"${firstRejected}" 노드를 찾지 못했습니다. TaskPanel의 정확한 이름으로 다시 요청해 주세요.`
         : '변경할 노드를 찾지 못했습니다. TaskPanel의 노드 이름으로 다시 요청해 주세요.'
@@ -1696,6 +1742,7 @@ export function applyEditDraftToFlowDefinition(
 
   return {
     next,
+    substitutions,
     clarification: null
   }
 }
@@ -1937,7 +1984,15 @@ export default function TaskFlowCanvasPage() {
             success: changeSummary.didApply,
             didApply: changeSummary.didApply,
             insertedNodeCount: changeSummary.addedIds.length,
-            message: changeSummary.message
+            message: changeSummary.message,
+            // 요청과 다른 이름으로 놓인 노드. 채팅 응답에 그대로 덧붙는다.
+            // 서버가 draft.substitutions 로 알려 준 대체(같은 Task 의 다른 콘텐츠 등)도 함께 싣는다.
+            substitutions: Array.from(
+              new Set([
+                ...(Array.isArray((draft as any).substitutions) ? (draft as any).substitutions.map(String) : []),
+                ...(applied?.substitutions ?? [])
+              ])
+            )
           }
         })
       )
@@ -2063,6 +2118,34 @@ export default function TaskFlowCanvasPage() {
       })
     )
   }, [palette, nodes, edges, viewport, applyFlowDefinitionWithHistory])
+
+  // AI Assistant 의 Test 버튼이 쓰는 판정 창구(임시).
+  // 채팅 패널은 공용 패키지라 캔버스 상태와 BT 변환을 모르므로, 이 화면이 판정 함수를 올려 둔다.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    window.__AI_TASKFLOW_TEST__ = {
+      reset: () => {
+        clearAllNodesExceptStart()
+      },
+      resolveCase: (testCase) => resolveTestCaseSlots(testCase, palette),
+      verify: (expectation) => verifyCanvasExpectation(expectation, nodes, edges),
+      buildBt: () => {
+        try {
+          const result = buildBehaviorTreeFromFlowDefinition({ nodes, edges, flowMode } as any)
+          const xml = String(result.xml ?? '').trim()
+          if (!xml) return { ok: false, error: 'BT XML 이 비어 있음', warnings: result.warnings ?? [] }
+          return { ok: true, warnings: result.warnings ?? [], xmlLineCount: xml.split('\n').length }
+        } catch (error) {
+          return { ok: false, error: (error as Error)?.message || 'BT 변환 실패', warnings: [] }
+        }
+      }
+    }
+
+    return () => {
+      delete window.__AI_TASKFLOW_TEST__
+    }
+  }, [nodes, edges, flowMode, palette, clearAllNodesExceptStart])
 
   useEffect(() => {
     if (typeof window === 'undefined') return

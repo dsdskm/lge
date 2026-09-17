@@ -286,8 +286,8 @@ const AssetInfo = ({ t, deviceId }) => {
     }
   }
 
-  // 로그 업로드 요청 모달 확인 — 선택한 시작 시각 + 지속 시간(분)을 uploadLog 액션으로 전송
-  const handleLogUploadRequest = ({ startDate, startHour, startMinute, duration }) => {
+  // 로그 업로드 요청 모달 확인 — 선택한 시작 시각 + 지속 시간(분) + 전체 시스템 텍스트 로그 포함 여부를 uploadLog 액션으로 전송
+  const handleLogUploadRequest = ({ startDate, startHour, startMinute, duration, includeSystemTextLog }) => {
     LogUploadRequestModal.onClose()
 
     const startAt = new Date(startDate)
@@ -301,7 +301,8 @@ const AssetInfo = ({ t, deviceId }) => {
           blockingType: 'NONE',
           actionParameters: [
             { key: 'start_time', value: startAt.toISOString() },
-            { key: 'duration', value: String(duration) }
+            { key: 'duration', value: String(duration) },
+            { key: 'include_system_text_log', value: String(includeSystemTextLog) }
           ]
         }
       ],

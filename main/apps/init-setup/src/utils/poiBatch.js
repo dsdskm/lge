@@ -49,6 +49,13 @@ export const diffControlPoi = (editedPoi, originalPoi) => {
  * @param {object[]} params.edited   editStatus.edited POI 목록
  * @param {object[]} params.deleted  editStatus.softDelete POI 목록
  * @param {Record<string, object>} [params.originalsByPoiId] poiId → 원본 POI(수정 diff 용)
+ *
+ * TODO(가상 장애물 업로드): 관제 batch API 에 vo 인터페이스가 정의되면 여기에 `vo` 키를 더한다.
+ * 맵의 장애물(map_obstacles) 전체를 full-state 로 싣는 형태다 — POI 와 달리 변경분을 만들 근거가
+ * 없다(로봇 프로토콜과 DB 저장이 모두 전체 치환이다). 주의: 빈 배열은 "장애물 없음"(= 관제에 있던
+ * 것도 삭제)이므로, 목록 조회에 실패한 경우에는 vo 키 자체를 빼야 한다.
+ * 수신 방향은 이미 붙어 있다 — 관제가 pois.vo 로 내려주면 init-setup-be 가 map_obstacles 를
+ * 치환하고 vo_*.yaml 까지 쓴다(init-setup-be services/mapSync.service.js 의 deliver).
  */
 export const buildApplyPoiBatchBody = ({
   basePoiVersionId = null,

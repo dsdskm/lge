@@ -74,19 +74,53 @@ export const EmptyMessage = styled.p`
   color: var(--color-neutral-70);
 `
 
-// 위치 선택 줄의 오른쪽 묶음 — 상태 배지들(Map) / 맵 로드 버튼 + 상태 배지들(Semantic).
+// 위치 선택 줄의 오른쪽 묶음 — 상태 배지들(Map) / 조작 버튼 + 상태 배지들(Semantic).
 // LocationRow 가 space-between 이라 배지를 개별 자식으로 두면 가운데로 벌어진다 — 묶어서 오른쪽에 붙인다
 // (LocationBar 가 줄바꿈될 때도 오른쪽 정렬이 유지되도록 margin-left: auto 를 함께 준다).
+//
+// Semantic 화면에서는 이 안에 ActionGroup(조작 버튼)과 StatusGroup(상태 배지)을 순서대로 넣어
+// 성격이 다른 두 묶음을 시각적으로 나눈다 — Map(스캔) 화면은 배지만 직접 자식으로 두므로
+// 영향받지 않는다.
 export const BadgeRow = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 1.6rem;
+  flex-wrap: wrap;
+  margin-left: auto;
+
+  /* 태블릿 폭에서는 조작/상태 두 묶음이 각자 줄로 떨어져도 오른쪽 정렬을 유지한다. */
+  @media (max-width: 1280px) {
+    justify-content: flex-end;
+  }
+`
+
+// 조작 버튼 묶음(맵 로드 · 회전/정지 · 이동 정지 · 장애물 반영) — BadgeRow 안에서 상태 배지보다 먼저 온다.
+export const ActionGroup = styled.div`
   display: flex;
   align-items: center;
   gap: 0.8rem;
   flex-wrap: wrap;
-  margin-left: auto;
 
-  /* 배지가 자체 margin-bottom(2rem)을 갖고 있어 버튼에도 같은 여백을 줘 아래선을 맞춘다. */
-  & > button {
-    margin-bottom: 2rem;
+  /* 태블릿 폭에서는 손가락으로 누르기 쉽도록 버튼 높이를 키운다. */
+  @media (max-width: 1280px) {
+    & > button {
+      min-height: 4.4rem;
+    }
+  }
+`
+
+// 상태 배지 묶음(비상정지 · 회전 진행 · 맵 로드/측위 · 주행) — ActionGroup 다음에 온다.
+export const StatusGroup = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+
+  /* MappingStatusBadge 는 Map(스캔) 화면과 공유하는 컴포넌트라 자체 margin-bottom(2rem)을 갖는다
+     (그 화면에서는 위치 선택 줄과의 아래선을 맞추기 위한 값). 여기서는 그룹 자체가
+     align-items: center 로 다른 배지/버튼과 나란히 정렬되므로 그 여백은 지운다. */
+  & > div {
+    margin-bottom: 0;
   }
 `
 

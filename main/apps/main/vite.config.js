@@ -60,12 +60,6 @@ export default defineConfig(({ mode }) => {
           ws: true,
           rewrite: (path) => (path === '/robot' ? '/robot/' : path)
         },
-        '/ebme': {
-          target: 'http://localhost:5176',
-          changeOrigin: true,
-          ws: true,
-          rewrite: (path) => (path === '/ebme' ? '/ebme/' : path)
-        },
         '/setup': {
           target: 'http://localhost:5177',
           changeOrigin: true,
@@ -112,12 +106,6 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           ws: true,
           rewrite: (path) => (path === '/robot' ? '/robot/' : path)
-        },
-        '/ebme': {
-          target: 'http://localhost:4176',
-          changeOrigin: true,
-          ws: true,
-          rewrite: (path) => (path === '/ebme' ? '/ebme/' : path)
         },
         '/setup': {
           target: 'http://localhost:4177',

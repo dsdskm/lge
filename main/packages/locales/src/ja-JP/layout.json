@@ -2,7 +2,6 @@
   "SideBar": {
     "gnb": {
       "ota": "S/W展開",
-      "ebme": "EBME",
       "robot": "ロボット管理",
       "cms": "コンテンツ管理",
       "tms": "TMS",

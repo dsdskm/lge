@@ -3,6 +3,18 @@ import { axiosApi, axiosHealthApi, createCrud } from './crudFactory'
 // 맵 리소스 CRUD (init-setup-be: /api/v1/maps)
 export const { create, list, getById, update, remove } = createCrud('maps')
 
+/**
+ * 이 맵을 '사용 맵' 으로 올린다 (POST /maps/:id/activate).
+ *
+ * 같은 사이트에서 active 였던 다른 맵은 archived 로 내려간다 — 사이트에 사용 맵은 하나다
+ * (init-setup-be map.service.activate). 단독 설치에서 층별로 맵을 여러 장 만들어 두고 번갈아
+ * 쓰는 경로다. 관제 연동 설치에서는 업로드 시 승격(publishMap)이 이 일을 겸한다.
+ *
+ * @param {number|string} id 맵 레코드 id
+ * @returns {Promise<{success: boolean, data: {activated: number[], archived: number[]}}>}
+ */
+export const activateMap = (id) => axiosApi.post(`/maps/${id}/activate`, {})
+
 // 외부 맵 서버 업로드(zip 생성 + 전송)의 타임아웃. 공용 기본값 10s 로는 맵 크기에 따라 끊긴다.
 const UPLOAD_TIMEOUT_MS = 30000
 

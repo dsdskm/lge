@@ -4,8 +4,11 @@ import RobotsPage from '@/pages/RobotsPage'
 import TaskFlowCanvasPage from '@/pages/TaskFlowCanvasPage'
 import TaskFlowListDetailPage from '@/pages/TaskFlowListDetailPage'
 import TaskFlowListPage from '@/pages/TaskFlowListPage'
-import { lazy, Suspense } from 'react'
+import { isDeviceProfile } from '@/common/profile'
 import { Navigate } from 'react-router-dom'
+import { SHOW_TASK_MANAGEMENT } from '@/common/featureFlags'
+import ActionListPage from '@/pages/ActionListPage'
+import ActionDetailPage from '@/pages/ActionDetailPage'
 
 export const appRoutes = [
   {
@@ -55,14 +58,41 @@ export const appRoutes = [
       {
         name: 'robotDetail',
         hide: true,
-        hasBack: true,
+        hasBack: !isDeviceProfile,
         path: '/tms/robots/:robotId/detail',
         prefix: 'tms',
         element: <RobotDetailPage />
       }
     ],
     accessLevel: [0, 1, 2, 3]
-  }
+  },
+  /*
+    Task 관리 노출 여부(SHOW_TASK_MANAGEMENT). 점검 모드의 AST 뷰와 같은 기준을 쓴다.
+    여기서 빼면 GNB 메뉴와 라우트가 함께 사라진다 — 둘 다 appRoutes 에서 나온다.
+  */
+  ...(SHOW_TASK_MANAGEMENT
+    ? [
+        {
+          name: 'actions',
+          path: '/tms/actions',
+          prefix: 'tms',
+          icon: 'category',
+          element: <ActionListPage />,
+          depth: [
+            {
+              // 신규 추가(/tms/actions/new/detail)도 같은 화면을 편집 모드로 재사용한다.
+              name: 'actionDetail',
+              hide: true,
+              hasBack: true,
+              path: '/tms/actions/:actionId/detail',
+              prefix: 'tms',
+              element: <ActionDetailPage />
+            }
+          ],
+          accessLevel: [0, 1, 2, 3]
+        }
+      ]
+    : [])
 ]
 
 export const getAppPrefix = (pathname: string) => {
@@ -83,7 +113,7 @@ export const flattenRoutes = (routes: any) => {
       name: '',
       path: '/tms',
       prefix: '',
-      element: <Navigate to="/tms/taskflows" replace />
+      element: <Navigate to={isDeviceProfile ? '/tms/robots/self/detail' : '/tms/taskflows'} replace />
     })
   }
   return result

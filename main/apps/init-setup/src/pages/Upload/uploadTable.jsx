@@ -245,10 +245,6 @@ const UploadTable = () => {
       return
     }
     const working = candidates.filter(({ dir }) => isWorkingMapDir(dir))
-    if (!working.length) {
-      toast.info(t('upload.map.alreadyUploaded'), { autoClose: 3000 })
-      return
-    }
     // 작업본이 여러 개면 어느 것을 확정할지 판단할 근거가 없다 — 임의로 고르지 않는다.
     // 같은 디렉터리를 가리키는 레코드가 여럿일 수 있으므로 디렉터리 단위로 센다.
     const workingDirs = Array.from(new Set(working.map(({ dir }) => dir)))
@@ -257,7 +253,16 @@ const UploadTable = () => {
       return
     }
 
-    const { map: targetMap, dir: workingDir } = working[0]
+    // 작업본이 없으면 이미 확정본인 맵이다. 관제에 올린 적이 없으면(extMapId 없음) 그대로 올린다 —
+    // 단독 설치로 만든 맵은 설치 완료 단계에서 이 로봇 안에서 승격되므로(pages/Finish) 관제 연동으로
+    // 전환한 뒤에는 작업본이 남아 있지 않다. 승격은 이미 끝났으니 파일만 올리면 된다.
+    const published = candidates.filter(({ map }) => !map.extMapId)
+    if (!working.length && published.length !== 1) {
+      toast.info(t('upload.map.alreadyUploaded'), { autoClose: 3000 })
+      return
+    }
+
+    const { map: targetMap, dir: workingDir } = working.length ? working[0] : published[0]
     const session = useUserStore.getState().session
     const row = selectMapUploadRow
 
@@ -295,6 +300,14 @@ const UploadTable = () => {
       }
 
       // 파일이 올라갔으면 로컬 작업본을 확정본으로 승격한다(폴더의 '_working' 제거 + active 전환).
+      // 이미 확정본인 맵(전환해 온 단독 설치 맵)은 승격할 것이 없다 — 업로드로 끝이고, 목록만
+      // 다시 읽어 extMapId 가 붙은 상태를 반영한다.
+      if (!isWorkingMapDir(workingDir)) {
+        toast.success(t('upload.map.done', { name: targetMap.name?.default ?? workingDir }), { autoClose: 3000 })
+        setReloadKey((key) => key + 1)
+        return
+      }
+
       setProgress({ title: t('upload.map.title'), message: t('upload.map.publishing') })
       const publishedName = publishedNameOf(workingDir)
       const result = await publishMapDir({ mapId: targetMap.id, fallbackName: publishedName })

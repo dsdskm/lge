@@ -1328,9 +1328,28 @@ export function createCanvasRenderer({
     //    끝났는지"에 따라 결과가 매번 달라져 "같은 시각인데 위치가 다르다"는 문제를 반복해서 냈다.
     //    이제는 순수하게 "pts가 그 시각의 실제 데이터를 갖고 있는가"만으로 결정되므로, 같은 시각은
     //    (routePts가 이미 로드된 이후) 언제 seek해도 항상 같은 값이 나온다.
+    //
+    // ⚠️ 잔상(ghosting) 방지: applyPoseByPlayhead(useLogReplayData.js)는 lastPoseApplyIdxRef 게이트로
+    //    idx가 같으면 setPathPoints를 호출하지 않는다. 그런데 pts가 갱신되지 않으면 getPosePreciseIfBracketed가
+    //    "이전 위치"의 데이터를 그대로 반환해, 재생 중에도 로봇 삼각형이 이전 위치에 남아 보인다(잔상).
+    //    → pts가 tSecCutoff를 감싸지 못하면(갱신 대기 중) routePts(sparse)로 폴백하지 말고,
+    //      traveledPoints의 마지막 점(직전에 그린 정밀 위치)을 유지한다. 이러면 잔상 없이
+    //      "같은 시각은 항상 같은 값"이라는 결정성 원칙도 지켜진다.
     const precisePoseNow = getPosePreciseIfBracketed(pts, tSecCutoff)
     const hasPreciseNow = precisePoseNow != null
-    const poseNow = precisePoseNow || (routePts.length >= 2 ? getPoseAtTime(routePts, tSecCutoff) : null)
+    let poseNow = precisePoseNow
+    if (!poseNow) {
+      // ✅ pts가 tSecCutoff를 감싸지 못하면(갱신 대기 중) traveledPoints의 마지막 점을 유지한다.
+      //    이렇게 하면 잔상 없이 이전 위치를 유지하고, pts가 갱신되면 자연스럽게 새 위치로 이동한다.
+      const lastTraveled = traveledPoints.length ? traveledPoints[traveledPoints.length - 1] : null
+      if (lastTraveled) {
+        poseNow = { x: lastTraveled.x, y: lastTraveled.y, yaw: lastTraveled.yaw ?? 0, tSec: lastTraveled.tSec }
+      } else if (routePts.length >= 2) {
+        // ✅ traveledPoints가 비어 있으면(seek 직후) sparse 폴백으로 마커를 표시한다.
+        //    (마커는 "같은 시각에 항상 같은 값"이 필요하므로 routePts 기반이 안정적)
+        poseNow = getPoseAtTime(routePts, tSecCutoff)
+      }
+    }
 
     if (poseNow) {
       // ⚠️ 정밀 데이터가 아직 없으면(seek 직후 fetch 대기 중) 초록 시작점을 심지 않는다.
@@ -1339,7 +1358,7 @@ export function createCanvasRenderer({
       if (hasPreciseNow) {
         const lastT = traveledPoints.length ? traveledPoints[traveledPoints.length - 1].tSec : -Infinity
         if (traveledPoints.length === 0 || tSecCutoff - lastT > 0.001) {
-          traveledPoints.push({ tSec: tSecCutoff, x: poseNow.x, y: poseNow.y })
+          traveledPoints.push({ tSec: tSecCutoff, x: poseNow.x, y: poseNow.y, yaw: poseNow.yaw })
         }
       }
       // 무한 성장 방지(파일이 매우 길 때)

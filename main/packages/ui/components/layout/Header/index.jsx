@@ -1,4 +1,3 @@
-import { useLocation } from 'react-router-dom'
 import {
   StyledHeader,
   StyledHeaderButton,
@@ -19,7 +18,6 @@ import { logout as requestLogout } from '@repo/apis'
 import ServiceMenuIcon from '../ServiceMenuIcon'
 import LearningNotification from './LearningNotification'
 import MyProfileModal from './MyProfileModal'
-import { getAppPrefix } from '@repo/utils'
 import { COMMON_GNB } from '@repo/constants/routes'
 import { useTranslation } from 'react-i18next'
 import useToggle from '@repo/hooks/useToggle'
@@ -33,10 +31,6 @@ const Header = ({ notificationSlot }) => {
   const { theme, toggleTheme } = useThemeStore()
   const { responsiveMode } = useResponsiveStore()
   const email = useUserStore((state) => state.session?.email)
-  const { pathname } = useLocation()
-  const fullPathname = typeof window !== 'undefined' ? window.location.pathname : pathname
-
-  const currentAppPrefix = getAppPrefix(fullPathname)
   const openAiAssistantPanel = useAiAssistantStore((state) => state.openPanel)
 
   const { state: isProfileOpen, toggle: toggleProfile, off: closeProfile } = useToggle()
@@ -105,7 +99,7 @@ const Header = ({ notificationSlot }) => {
             <Logo />
           </div>
 
-          {currentAppPrefix !== '/ebme' && <ServiceMenuIcon t={t} headerRoutes={headerRoutes} />}
+          <ServiceMenuIcon t={t} headerRoutes={headerRoutes} />
         </div>
 
         <div className="content right">
