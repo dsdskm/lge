@@ -20,7 +20,7 @@
 | [scripts/aws/deploy.sh](scripts/aws/deploy.sh) | 이미지 빌드 → ECR 푸시 → EC2 배포 |
 | [scripts/aws/health-check.sh](scripts/aws/health-check.sh) | 컨테이너 + ALB 2단계 헬스체크 |
 | [scripts/aws/logs.sh](scripts/aws/logs.sh) | CloudWatch Logs 조회/실시간 추적 |
-| [scripts/aws/backup.sh](scripts/aws/backup.sh) | EC2 의 모든 DB 컨테이너 덤프 |
+| [scripts/aws/backup.sh](scripts/aws/backup.sh) | 로컬/AWS EC2 의 모든 DB 컨테이너 덤프 |
 | [scripts/aws/restore.sh](scripts/aws/restore.sh) | 백업 디렉터리를 EC2/로컬 DB 에 복원 |
 | [scripts/aws/ssm.sh](scripts/aws/ssm.sh) | SSM 으로 EC2 접속 또는 원격 명령 1회 실행 |
 | [scripts/codespaces/ports-public.sh](scripts/codespaces/ports-public.sh) | Codespace 포워딩 포트를 public 으로 변경 |
@@ -164,7 +164,13 @@ SCHEME=http TIMEOUT=20 ./scripts/aws/health-check.sh
 
 ### scripts/aws/backup.sh — DB 백업
 6개 DB 컨테이너를 순서대로 덤프하고 `SHA256SUMS`·`backup_info.txt` 를 남긴다. 하나라도 실패하면 임시 디렉터리를 지워 **불완전한 백업을 남기지 않는다**. `deploy.sh` 등에서 `source` 해 함수로도 쓴다.
+
+**기본값(인자 생략)은 AWS 원격 EC2 백업**이고, `-local` 플래그로 로컬 도커 백업으로 전환한다.
 ```bash
+./scripts/aws/backup.sh                         # AWS 원격 EC2 백업 (ASG 인스턴스 자동 선택)
+./scripts/aws/backup.sh i-00db45f6e071ee5c8    # AWS 특정 EC2 인스턴스 백업
+./scripts/aws/backup.sh -local                  # 로컬 Docker 컨테이너 백업
+
 sudo ./scripts/aws/backup.sh /opt/app/backup    # EC2 에서 직접 실행
 
 source ./scripts/aws/backup.sh                  # 함수로 사용

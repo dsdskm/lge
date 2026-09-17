@@ -37,6 +37,8 @@ export type TaskflowLanguageRules = {
    * 제어 노드에 붙일 때 이 말이 없으면 자식으로 넣는다.
    */
   nodeAttachRightPhrases: string[]
+  /** 기존 노드를 손대는 요청임이 분명한 표현. 이 말이 있으면 전체 재구성(compose) 도구를 열지 않는다. */
+  editOnlyPhrases: string[]
 }
 
 export type TaskflowClassifierRules = {
@@ -319,6 +321,7 @@ async function readRules(routeKey: string): Promise<TaskflowLanguageRules> {
     nodeTargetOrdinalSuffixPhrases: readMergedList(ruleMaps, 'nodeTargetOrdinalSuffixPhrases'),
     nodeTargetNounPhrases: readMergedList(ruleMaps, 'nodeTargetNounPhrases'),
     nodeAttachRightPhrases: readMergedList(ruleMaps, 'nodeAttachRightPhrases'),
+    editOnlyPhrases: readMergedList(ruleMaps, 'editOnlyPhrases'),
   }
 }
 

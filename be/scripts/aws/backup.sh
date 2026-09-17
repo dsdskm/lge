@@ -35,10 +35,10 @@
 #
 # 사용법:
 #
-#   원격 EC2 자동 선택:
+#   AWS 원격 EC2 자동 선택 (기본값):
 #     ./scripts/aws/backup.sh
 #
-#   특정 EC2 인스턴스:
+#   AWS 특정 EC2 인스턴스:
 #     ./scripts/aws/backup.sh i-00db45f6e071ee5c8
 #
 #   로컬 Docker:
@@ -80,19 +80,19 @@ DB_CONTAINERS=(
 usage() {
     echo "사용법:"
     echo
-    echo "  원격 EC2 자동 선택:"
+    echo "  AWS 원격 EC2 자동 선택 (기본값):"
     echo "    $0"
     echo
-    echo "  특정 EC2 인스턴스:"
+    echo "  AWS 특정 EC2 인스턴스:"
     echo "    $0 i-xxxxxxxxxxxxxxxxx"
     echo
     echo "  로컬 Docker:"
     echo "    $0 -local"
     echo
     echo "예:"
-    echo "  $0"
-    echo "  $0 i-00db45f6e071ee5c8"
-    echo "  $0 -local"
+    echo "  $0                        # AWS 원격 백업 (기본값)"
+    echo "  $0 i-00db45f6e071ee5c8   # AWS 특정 인스턴스 백업"
+    echo "  $0 -local                 # 로컬 Docker 백업"
 }
 
 # =========================================================

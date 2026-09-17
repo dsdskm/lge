@@ -21,12 +21,14 @@ import { RagService } from './rag/rag.service'
 import {
   includesConfiguredPhrase,
   loadTaskflowClassifierRules,
+  loadTaskflowLanguageRules,
   loadTaskflowOrchestratorRules,
   type TaskflowClassifierRules,
   type TaskflowOrchestratorRules,
 } from './taskflow-language-rules'
 import { ToolAgent, type ExecutedCall } from './agent/tool-agent'
 import { getScreenConfig, type ScreenConfig } from './screen-registry'
+import { createComposeTaskflowTool } from './tools/compose-taskflow-tree.tool'
 import { readCurrentGraphFromContext, readTaskContentsFromContext, toMatchKey } from './tools/taskflow-palette'
 import { getPropertyTmsStore } from '../features/taskflow/service/property-tms-store.service'
 import type { ChatIntent, ChatReply, ChatTurn, RagScoreEntry } from './pipeline.types'
@@ -448,7 +450,7 @@ export class ChatOrchestrator {
    */
   async handle(routeKey: string, message: string, body: any): Promise<OrchestrationOutput> {
     const reqId = this.resolveReqId(body)
-    const screen = getScreenConfig(routeKey, reqId)
+    let screen = getScreenConfig(routeKey, reqId)
     this.stageLog(
       '2단계:화면설정_확정',
       reqId,
@@ -466,6 +468,19 @@ export class ChatOrchestrator {
       loadTaskflowClassifierRules(screen.key),
       loadTaskflowOrchestratorRules(screen.key),
     ])
+
+    // "지워줘 / 바꿔줘" 처럼 기존 노드를 손대는 요청에는 전체 재구성 도구를 열지 않는다.
+    // 도구가 보이면 LLM 이 그쪽을 골라 캔버스를 다시 그려 노드가 중복되기 때문이다(표현은 rule 테이블).
+    const editOnlyLanguageRules = await loadTaskflowLanguageRules(screen.key)
+    const hasExistingNodes = readCurrentGraphFromContext(body?.context).nodes.length > 0
+    if (hasExistingNodes && includesConfiguredPhrase(message, editOnlyLanguageRules.editOnlyPhrases)) {
+      const composeToolName = String(createComposeTaskflowTool()?.declaration?.name ?? '')
+      const actionTools = screen.actionTools.filter((tool) => tool.declaration.name !== composeToolName)
+      if (actionTools.length !== screen.actionTools.length) {
+        screen = { ...screen, actionTools }
+        this.stageLog('2단계:도구제한', reqId, `status=applied reason=편집 전용 요청이라 ${composeToolName} 제외`)
+      }
+    }
 
     const history = normalizeHistory(body?.history)
     const latestAssistantMessage = String(body?.lastAssistantMessage ?? '').trim() || undefined

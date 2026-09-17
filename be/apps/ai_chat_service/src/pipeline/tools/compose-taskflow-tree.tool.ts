@@ -379,6 +379,22 @@ function joinsNextClause(clause: string, phraseKey: string): boolean {
   return toMatchKey(clause).endsWith(phraseKey)
 }
 
+/** childScope=clause 인 제어 노드(Delay/Timeout/Repeat 등)는 자기 절의 동작 하나만 자식으로 둔다.
+ * LLM 이 뒤 절까지 자식으로 넣어 보내면 "3초 기다렸다가 A 하고 B" 의 B 가 지연 대상이 되어 버리므로,
+ * 첫 자식만 남기고 나머지는 그 제어 노드 다음 순서(형제)로 옮긴다. 범위는 property_tms 가 정한다.
+ */
+function moveExtraClauseChildrenToSiblings(nodes: TaskflowTreeNode[]): void {
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index]
+    if (node.taskType === TASK_TYPE.control && readControlChildScope(node.taskName) === 'clause' && node.children.length > 1) {
+      const moved = node.children.splice(1)
+      nodes.splice(index + 1, 0, ...moved)
+    }
+
+    moveExtraClauseChildrenToSiblings(node.children)
+  }
+}
+
 /** 동시 실행 제어 노드(Parallel 등) 아래에서 같은 Task 의 자식을 하나만 남긴다.
  * 얼굴 두 개, 발화 두 개를 동시에 수행할 수는 없어서 프론트 연결 규칙도 이를 막는다.
  * 어떤 Task 가 동시 실행인지는 property_tms(compose_hint.intent=concurrent)가 정한다.
@@ -625,6 +641,7 @@ export function createComposeTaskflowTool(): ToolDefinition | null {
 
       const roots = await wrapConcurrentRootsIfNeeded(result, store, ctx)
       dropDuplicateConcurrentChildren(roots, notes)
+      moveExtraClauseChildrenToSiblings(roots)
       trace(traceReqId(ctx.context), '4-2.compose-tree', {
         beforeWrap: describeTree(result),
         afterWrap: describeTree(roots),
