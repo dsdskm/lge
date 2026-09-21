@@ -1,0 +1,1644 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>지능형 로봇 관제 시스템 구축</title>
+<style>
+  :root {
+    --navy: #0b1120;
+    --navy2: #111827;
+    --navy3: #1e293b;
+    --teal: #00d4aa;
+    --teal2: #00b894;
+    --blue: #3b82f6;
+    --blue2: #1d4ed8;
+    --red: #f87171;
+    --yellow: #fbbf24;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --card: #1e293b;
+    --border: #334155;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--navy);
+    color: var(--text);
+    font-family: 'Segoe UI', 'Apple SD Gothic Neo', sans-serif;
+    line-height: 1.6;
+  }
+
+  /* ── NAV ── */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(11,17,32,0.92);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 2rem; height: 56px;
+  }
+  .nav-logo { font-size: 0.9rem; font-weight: 700; color: var(--teal); letter-spacing: 0.04em; }
+  .nav-links { display: flex; gap: 1.6rem; }
+  .nav-links a {
+    font-size: 0.78rem; color: var(--muted); text-decoration: none;
+    letter-spacing: 0.05em; transition: color 0.2s;
+  }
+  .nav-links a:hover { color: var(--teal); }
+
+  /* ── SECTIONS ── */
+  section {
+    min-height: 100vh;
+    padding: 6rem 2rem 4rem;
+    display: flex; flex-direction: column; justify-content: center;
+    max-width: 1100px; margin: 0 auto;
+  }
+  section.full { max-width: 100%; padding-left: 4rem; padding-right: 4rem; }
+
+  .section-label {
+    font-size: 0.72rem; letter-spacing: 0.15em; color: var(--teal);
+    text-transform: uppercase; margin-bottom: 0.8rem; font-weight: 600;
+  }
+  h1 { font-size: clamp(2.2rem, 5vw, 3.8rem); font-weight: 800; line-height: 1.15; }
+  h2 { font-size: clamp(1.6rem, 3vw, 2.4rem); font-weight: 700; line-height: 1.2; }
+  h3 { font-size: 1.1rem; font-weight: 700; }
+
+  /* ── HERO ── */
+  #hero {
+    min-height: 100vh;
+    display: flex; flex-direction: column; justify-content: center;
+    align-items: flex-start;
+    padding: 0 6rem;
+    position: relative; overflow: hidden;
+    max-width: 100%;
+  }
+  .hero-bg {
+    position: absolute; inset: 0; z-index: 0;
+    background: radial-gradient(ellipse 80% 60% at 70% 50%, rgba(0,212,170,0.08) 0%, transparent 70%),
+                radial-gradient(ellipse 60% 80% at 20% 80%, rgba(59,130,246,0.07) 0%, transparent 60%);
+  }
+  .hero-grid {
+    position: absolute; inset: 0; z-index: 0;
+    background-image:
+      linear-gradient(rgba(0,212,170,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,170,0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+  .hero-content { position: relative; z-index: 1; }
+  .hero-tag {
+    display: inline-block; background: rgba(0,212,170,0.1);
+    border: 1px solid rgba(0,212,170,0.3);
+    color: var(--teal); font-size: 0.78rem; letter-spacing: 0.12em;
+    padding: 0.35rem 0.9rem; border-radius: 20px; margin-bottom: 1.4rem;
+    text-transform: uppercase;
+  }
+  .hero-title { color: #fff; margin-bottom: 1.2rem; }
+  .hero-title span { color: var(--teal); }
+  .hero-subtitle { font-size: 1.1rem; color: var(--muted); max-width: 520px; margin-bottom: 2.5rem; }
+  .hero-stats {
+    display: flex; gap: 3rem;
+  }
+  .hero-stat-num {
+    font-size: 2rem; font-weight: 800; color: var(--teal); line-height: 1;
+  }
+  .hero-stat-label { font-size: 0.8rem; color: var(--muted); margin-top: 0.3rem; }
+
+  /* ── DIVIDER ── */
+  .divider {
+    width: 100%; height: 1px; background: var(--border);
+    margin: 0;
+  }
+
+  /* ── CARDS ── */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.6rem;
+  }
+  .card-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  .card-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.2rem; }
+  .card-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; }
+
+  /* ── TAGS ── */
+  .tag {
+    display: inline-block; font-size: 0.72rem; font-weight: 600;
+    padding: 0.2rem 0.7rem; border-radius: 6px; letter-spacing: 0.04em;
+  }
+  .tag-red { background: rgba(248,113,113,0.15); color: #f87171; border: 1px solid rgba(248,113,113,0.3); }
+  .tag-teal { background: rgba(0,212,170,0.12); color: var(--teal); border: 1px solid rgba(0,212,170,0.3); }
+  .tag-blue { background: rgba(59,130,246,0.12); color: #93c5fd; border: 1px solid rgba(59,130,246,0.3); }
+  .tag-yellow { background: rgba(251,191,36,0.12); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+
+  /* ── ICONS ── */
+  .icon-circle {
+    width: 44px; height: 44px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.3rem; flex-shrink: 0;
+  }
+  .ic-red { background: rgba(248,113,113,0.15); }
+  .ic-teal { background: rgba(0,212,170,0.12); }
+  .ic-blue { background: rgba(59,130,246,0.12); }
+  .ic-yellow { background: rgba(251,191,36,0.12); }
+
+  /* ── PROBLEM SECTION ── */
+  .problem-card {
+    background: rgba(248,113,113,0.06);
+    border: 1px solid rgba(248,113,113,0.2);
+    border-radius: 14px; padding: 1.5rem;
+    display: flex; gap: 1rem; align-items: flex-start;
+  }
+  .solution-card {
+    background: rgba(0,212,170,0.06);
+    border: 1px solid rgba(0,212,170,0.2);
+    border-radius: 14px; padding: 1.5rem;
+    display: flex; gap: 1rem; align-items: flex-start;
+  }
+
+  /* ── ARROW ── */
+  .arrow-right {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--teal); font-size: 2rem;
+  }
+
+  /* ── PIPELINE ── */
+  .pipeline {
+    display: flex; align-items: stretch; gap: 0; overflow: hidden;
+    border-radius: 14px; border: 1px solid var(--border);
+  }
+  .pipe-step {
+    flex: 1; padding: 1.2rem 1rem; text-align: center;
+    background: var(--card); border-right: 1px solid var(--border);
+    position: relative;
+  }
+  .pipe-step:last-child { border-right: none; }
+  .pipe-step::after {
+    content: '▶';
+    position: absolute; right: -10px; top: 50%; transform: translateY(-50%);
+    color: var(--teal); font-size: 0.8rem; z-index: 1;
+  }
+  .pipe-step:last-child::after { display: none; }
+  .pipe-num {
+    display: inline-block; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--teal); color: var(--navy); font-size: 0.72rem;
+    font-weight: 800; line-height: 22px; text-align: center; margin-bottom: 0.5rem;
+  }
+  .pipe-title { font-size: 0.82rem; font-weight: 700; margin-bottom: 0.3rem; }
+  .pipe-sub { font-size: 0.72rem; color: var(--muted); }
+
+  /* ── SERVICE ARCH ── */
+  .service-box {
+    background: var(--navy3); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0.9rem 1rem;
+    display: flex; align-items: center; gap: 0.8rem;
+  }
+  .service-dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+  }
+  .service-port {
+    font-size: 0.68rem; color: var(--muted);
+    background: rgba(255,255,255,0.05);
+    padding: 0.1rem 0.4rem; border-radius: 4px; margin-left: auto;
+  }
+
+  /* ── MM SECTION ── */
+  #mm { background: var(--navy2); padding: 6rem 4rem 5rem; max-width: 100%; }
+  #mm .inner { max-width: 1100px; margin: 0 auto; }
+
+  .mm-formula {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 1.8rem 2rem; margin: 1.5rem 0;
+    text-align: center;
+  }
+  .mm-formula .formula-line {
+    font-size: 1.05rem; color: var(--muted); margin-bottom: 0.5rem;
+  }
+  .mm-formula .formula-eq {
+    font-size: 1.4rem; font-weight: 700; color: var(--text);
+    font-family: 'Courier New', monospace;
+    margin-bottom: 0.3rem;
+  }
+  .mm-formula .formula-eq span { color: var(--teal); }
+
+  .mm-table-wrap { overflow-x: auto; margin: 1.5rem 0; }
+  table {
+    width: 100%; border-collapse: collapse; font-size: 0.85rem;
+  }
+  thead th {
+    background: rgba(0,212,170,0.1); color: var(--teal);
+    padding: 0.75rem 1rem; text-align: center;
+    border-bottom: 2px solid rgba(0,212,170,0.3);
+    font-size: 0.8rem; letter-spacing: 0.03em;
+  }
+  tbody td {
+    padding: 0.7rem 1rem; text-align: center;
+    border-bottom: 1px solid var(--border); color: var(--text);
+  }
+  tbody tr:first-child td { color: #f87171; }
+  tbody tr:nth-child(2) td { color: var(--teal); }
+  tbody tr:nth-child(3) td { color: var(--yellow); font-weight: 700; }
+  tbody tr:nth-child(n+4) td { color: var(--muted); font-size: 0.82rem; }
+  tbody tr:last-child td { color: var(--text); font-weight: 700; border-bottom: none; }
+  .td-label { text-align: left !important; color: var(--muted) !important; font-size: 0.8rem !important; font-weight: normal !important; }
+
+  .mm-result-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.2rem;
+    margin-top: 2rem;
+  }
+  .mm-result-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 1.4rem 1.2rem; text-align: center;
+  }
+  .mm-result-card.highlight {
+    background: rgba(0,212,170,0.08);
+    border-color: rgba(0,212,170,0.35);
+  }
+  .mm-result-num {
+    font-size: 2rem; font-weight: 800; color: var(--teal); line-height: 1;
+    margin-bottom: 0.35rem;
+  }
+  .mm-result-card.highlight .mm-result-num { font-size: 2.4rem; }
+  .mm-result-label { font-size: 0.78rem; color: var(--muted); }
+
+  /* trip cost table */
+  .trip-table tbody tr:first-child td { color: var(--text); }
+  .trip-table tbody tr:nth-child(2) td { color: var(--text); }
+  .trip-table tbody tr:nth-child(3) td { color: var(--text); }
+  .trip-table tbody tr:nth-child(4) td { color: var(--text); }
+  .trip-table tbody tr:nth-child(n+4) td { color: var(--text); font-weight: normal; font-size: 0.82rem; }
+
+  /* ── TIMELINE ── */
+  .timeline { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; margin-top: 1.5rem; }
+  .tl-col {
+    background: var(--card); border: 1px solid var(--border);
+    padding: 1.4rem 1.2rem;
+  }
+  .tl-col:first-child { border-radius: 12px 0 0 12px; }
+  .tl-col:last-child { border-radius: 0 12px 12px 0; }
+  .tl-quarter {
+    font-size: 0.72rem; letter-spacing: 0.1em; color: var(--teal);
+    text-transform: uppercase; margin-bottom: 0.8rem; font-weight: 700;
+  }
+  .tl-item {
+    display: flex; gap: 0.6rem; align-items: flex-start; margin-bottom: 0.9rem;
+  }
+  .tl-dot {
+    width: 7px; height: 7px; border-radius: 50%; margin-top: 0.35rem;
+    background: var(--teal); flex-shrink: 0;
+  }
+  .tl-item-text { font-size: 0.83rem; color: var(--text); line-height: 1.4; }
+  .tl-badge {
+    display: inline-block; font-size: 0.68rem; font-weight: 700;
+    padding: 0.2rem 0.6rem; border-radius: 5px; margin-bottom: 0.6rem;
+  }
+  .badge-poc { background: rgba(251,191,36,0.15); color: #fbbf24; }
+  .badge-dev { background: rgba(59,130,246,0.15); color: #93c5fd; }
+  .badge-adv { background: rgba(0,212,170,0.12); color: var(--teal); }
+
+  /* ── FINAL ── */
+  .final-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 2rem;
+  }
+  .final-num { font-size: 3.2rem; font-weight: 900; color: var(--teal); line-height: 1; }
+  .final-unit { font-size: 1.2rem; color: var(--muted); font-weight: 400; }
+  .final-desc { font-size: 0.9rem; color: var(--muted); margin-top: 0.4rem; }
+
+  /* ── ANIMATIONS ── */
+  .fade-in {
+    opacity: 0; transform: translateY(24px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+  .fade-in.visible { opacity: 1; transform: translateY(0); }
+  .fade-in.delay-1 { transition-delay: 0.1s; }
+  .fade-in.delay-2 { transition-delay: 0.2s; }
+  .fade-in.delay-3 { transition-delay: 0.3s; }
+  .fade-in.delay-4 { transition-delay: 0.4s; }
+
+  /* ── PROGRESS BAR ── */
+  .progress-bar {
+    height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;
+    margin-top: 0.5rem;
+  }
+  .progress-fill { height: 100%; border-radius: 3px; }
+
+  /* ── UTIL ── */
+  .gap-sm { margin-top: 0.6rem; }
+  .gap-md { margin-top: 1.2rem; }
+  .gap-lg { margin-top: 2rem; }
+  .text-teal { color: var(--teal); }
+  .text-muted { color: var(--muted); }
+  .text-red { color: var(--red); }
+  .text-yellow { color: var(--yellow); }
+  .bold { font-weight: 700; }
+  .mono { font-family: 'Courier New', monospace; font-size: 0.85em; }
+
+  .section-title-row {
+    display: flex; align-items: flex-end; gap: 1rem; margin-bottom: 2rem;
+  }
+  .section-title-row h2 { margin: 0; }
+
+  /* arch diagram */
+  .arch-col { display: flex; flex-direction: column; gap: 0.8rem; }
+  .arch-row { display: grid; grid-template-columns: 200px 1fr 200px; gap: 2rem; align-items: start; }
+  .arch-center { display: flex; flex-direction: column; gap: 0.8rem; }
+  .arch-conn {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--teal); font-size: 1.2rem; padding: 0.5rem;
+  }
+  .layer-label {
+    font-size: 0.68rem; letter-spacing: 0.1em; color: var(--muted);
+    text-transform: uppercase; margin-bottom: 0.5rem; font-weight: 600;
+  }
+  .arch-bracket {
+    background: rgba(0,212,170,0.06); border: 1px solid rgba(0,212,170,0.15);
+    border-radius: 10px; padding: 1rem;
+  }
+
+  /* ── FLOW DIAGRAM ── */
+  .flow-wrap {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 2rem; position: relative; overflow: visible;
+  }
+  .flow-node {
+    background: var(--navy3); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0.75rem 1rem;
+    display: flex; flex-direction: column; gap: 0.25rem;
+    min-width: 130px;
+  }
+  .flow-node.highlight { border-color: rgba(0,212,170,0.5); background: rgba(0,212,170,0.07); }
+  .flow-node.yellow   { border-color: rgba(251,191,36,0.4); background: rgba(251,191,36,0.06); }
+  .flow-node.blue     { border-color: rgba(59,130,246,0.4); background: rgba(59,130,246,0.06); }
+  .flow-node.purple   { border-color: rgba(192,132,252,0.4); background: rgba(192,132,252,0.07); }
+  .flow-node.cloud    { border-color: rgba(248,113,113,0.4); background: rgba(248,113,113,0.06); }
+  .flow-node-title { font-size: 0.82rem; font-weight: 700; }
+  .flow-node-sub  { font-size: 0.72rem; color: var(--muted); line-height: 1.45; }
+  .flow-arrow {
+    color: var(--teal); font-size: 1.1rem;
+    display: flex; align-items: center; flex-shrink: 0;
+  }
+  .flow-arrow-down {
+    color: rgba(0,212,170,0.6); font-size: 1rem;
+    text-align: center; line-height: 1;
+  }
+  .flow-row { display: flex; align-items: center; gap: 0.6rem; }
+  .flow-col { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+  .flow-section-label {
+    font-size: 0.65rem; letter-spacing: 0.1em; color: var(--muted);
+    text-transform: uppercase; font-weight: 600; text-align: center;
+    margin-bottom: 0.3rem;
+  }
+  .flow-group {
+    border: 1px dashed var(--border); border-radius: 12px;
+    padding: 1rem 1.2rem; position: relative;
+  }
+  .flow-group-label {
+    position: absolute; top: -10px; left: 14px;
+    background: var(--card); padding: 0 6px;
+    font-size: 0.65rem; color: var(--muted); letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  /* Robot Frontend outer wrap */
+  .robot-frontend-wrap {
+    border: 2px solid rgba(0,212,170,0.35); border-radius: 20px; padding: 1.8rem 1.5rem 1.5rem;
+    background: rgba(0,212,170,0.03); position: relative;
+  }
+  .robot-frontend-label {
+    position: absolute; top: -14px; left: 20px;
+    background: var(--card); padding: 0 10px;
+    font-size: 0.8rem; font-weight: 700; color: var(--teal);
+    letter-spacing: 0.06em;
+  }
+
+  /* AI Assistant diagram */
+  .ai-assistant-wrap {
+    border: 2px solid rgba(59,130,246,0.35); border-radius: 16px; padding: 1.5rem;
+    background: rgba(59,130,246,0.04); position: relative;
+  }
+  .ai-assistant-label {
+    position: absolute; top: -13px; left: 18px;
+    background: var(--card); padding: 0 8px;
+    font-size: 0.78rem; font-weight: 700; color: #93c5fd;
+    letter-spacing: 0.06em;
+  }
+  .ai-inner-wrap {
+    border: 1px solid rgba(59,130,246,0.2); border-radius: 12px; padding: 1.2rem;
+    background: rgba(59,130,246,0.03);
+  }
+  .ai-module-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.9rem;
+  }
+  .ai-module {
+    background: var(--navy3); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1rem 0.8rem;
+    text-align: center; font-size: 0.85rem; font-weight: 700;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .ai-module:hover { border-color: rgba(59,130,246,0.5); background: rgba(59,130,246,0.08); }
+  .ai-module.active { border-color: rgba(0,212,170,0.5); background: rgba(0,212,170,0.07); color: var(--teal); }
+  .ai-module.tbd { border-style: dashed; color: var(--muted); font-style: italic; }
+  .ai-module-icon { font-size: 1.4rem; margin-bottom: 0.4rem; }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-logo">🤖 지능형 로봇 관제 시스템</div>
+  <div class="nav-links">
+    <a href="#hero">개요</a>
+    <a href="#problem">문제 / 해결</a>
+    <a href="#arch">시스템 구조</a>
+    <a href="#pipeline">AI 파이프라인</a>
+    <a href="#mm">MM 계산</a>
+    <a href="#apicost">AI API 비용</a>
+    <a href="#timeline">추진 일정</a>
+    <a href="#effect">기대 효과</a>
+  </div>
+</nav>
+
+<!-- ── 1. HERO ── -->
+<section id="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-grid"></div>
+  <div class="hero-content">
+    <div class="hero-tag fade-in">AX 과제 · '26년 로봇플랫폼선행연구Task</div>
+    <h1 class="hero-title fade-in delay-1">
+      지능형 로봇<br/><span>관제 시스템 구축</span>
+    </h1>
+    <p class="hero-subtitle fade-in delay-2">
+      원격 로봇 로그 수집 → AI Agent 자동 분석 → 실시간 대응 가이드 제공<br/>
+      현장 출동 없이 원격으로 이슈를 진단하고 조치하는 통합 관제 플랫폼
+    </p>
+    <div class="hero-stats fade-in delay-3">
+      <div>
+        <div class="hero-stat-num">23.25 MM</div>
+        <div class="hero-stat-label">연간 절감 목표</div>
+      </div>
+      <div>
+        <div class="hero-stat-num">2.3<span style="font-size:1.2rem">억원</span></div>
+        <div class="hero-stat-label">총 비용 절감</div>
+      </div>
+      <div>
+        <div class="hero-stat-num">34%</div>
+        <div class="hero-stat-label">대응 리드타임 단축</div>
+      </div>
+    </div>
+    <div style="margin-top:2rem; display:flex; gap:0.8rem;" class="fade-in delay-4">
+      <span class="tag tag-teal">Github Copilot</span>
+      <span class="tag tag-blue">Azure OpenAI API</span>
+      <span class="tag tag-yellow">NestJS · React</span>
+    </div>
+  </div>
+</section>
+<div class="divider"></div>
+
+<!-- ── 2. PROBLEM / SOLUTION ── -->
+<section id="problem">
+  <div class="section-label">AS-IS vs TO-BE</div>
+  <h2 class="fade-in">문제 정의와 해결 방향</h2>
+  <div style="margin-top:2rem;">
+    <div class="card-grid-2">
+      <!-- AS-IS -->
+      <div class="fade-in delay-1">
+        <div style="display:flex; align-items:center; gap:0.7rem; margin-bottom:1rem;">
+          <span class="tag tag-red">AS-IS · 현재 문제</span>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:0.9rem;">
+          <div class="problem-card">
+            <div class="icon-circle ic-red">🚫</div>
+            <div>
+              <h3 style="color:#f87171; margin-bottom:0.3rem;">원격 관제 부재</h3>
+              <p class="text-muted" style="font-size:0.88rem;">로봇의 상태를 원격에서 실시간으로 확인할 수 없어 이슈 인지 자체가 지연됨</p>
+            </div>
+          </div>
+          <div class="problem-card">
+            <div class="icon-circle ic-red">🏃</div>
+            <div>
+              <h3 style="color:#f87171; margin-bottom:0.3rem;">현장 출동 의존</h3>
+              <p class="text-muted" style="font-size:0.88rem;">단순 확인·분석을 위해서도 현장 인력이 직접 출동해야 하는 구조</p>
+            </div>
+          </div>
+          <div class="problem-card">
+            <div class="icon-circle ic-red">⏱️</div>
+            <div>
+              <h3 style="color:#f87171; margin-bottom:0.3rem;">대응 리드타임 과다</h3>
+              <p class="text-muted" style="font-size:0.88rem;">이슈 확인 → 분석 → 조치까지 평균 3.5 hr / 건 소요 (이슈 진단+파악+조치)</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TO-BE -->
+      <div class="fade-in delay-2">
+        <div style="display:flex; align-items:center; gap:0.7rem; margin-bottom:1rem;">
+          <span class="tag tag-teal">TO-BE · 개선 목표</span>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:0.9rem;">
+          <div class="solution-card">
+            <div class="icon-circle ic-teal">📡</div>
+            <div>
+              <h3 style="color:var(--teal); margin-bottom:0.3rem;">원격 실시간 관제</h3>
+              <p class="text-muted" style="font-size:0.88rem;">로봇 로그 자동 수집 → 대시보드에서 상태·장애 즉시 확인</p>
+            </div>
+          </div>
+          <div class="solution-card">
+            <div class="icon-circle ic-teal">🤖</div>
+            <div>
+              <h3 style="color:var(--teal); margin-bottom:0.3rem;">AI 자동 1차 분석</h3>
+              <p class="text-muted" style="font-size:0.88rem;">LLM이 로그·rosbag을 분석 → 장애 유형 분류, 원인 추정, 조치 가이드 자동 생성</p>
+            </div>
+          </div>
+          <div class="solution-card">
+            <div class="icon-circle ic-teal">📋</div>
+            <div>
+              <h3 style="color:var(--teal); margin-bottom:0.3rem;">이력 기반 대응 추천</h3>
+              <p class="text-muted" style="font-size:0.88rem;">과거 장애·조치 이력을 학습해 유사 상황에서 최적 대응 방안을 추천</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Flow arrow -->
+    <div style="display:flex; align-items:center; justify-content:center; gap:2rem; margin-top:2rem; padding:1.2rem; background:var(--card); border-radius:12px; border:1px solid var(--border);" class="fade-in delay-3">
+      <div style="text-align:center;">
+        <div style="font-size:1.8rem;">🔴</div>
+        <div style="font-size:0.78rem; color:var(--muted); margin-top:0.3rem;">현장 출동 의존<br/>67.81 MM / 년</div>
+      </div>
+      <div style="font-size:2.5rem; color:var(--teal);">→</div>
+      <div style="text-align:center;">
+        <div style="font-size:1.8rem;">🤖</div>
+        <div style="font-size:0.78rem; color:var(--muted); margin-top:0.3rem;">AI 원격 분석<br/>원격 대응 가이드</div>
+      </div>
+      <div style="font-size:2.5rem; color:var(--teal);">→</div>
+      <div style="text-align:center;">
+        <div style="font-size:1.8rem;">🟢</div>
+        <div style="font-size:0.78rem; color:var(--muted); margin-top:0.3rem;">현장 출동 33% 감소<br/>44.56 MM / 년</div>
+      </div>
+    </div>
+  </div>
+</section>
+<div class="divider"></div>
+
+<!-- ── 3. SYSTEM ARCHITECTURE ── -->
+<section id="arch" style="max-width:100%; padding-left:3.5rem; padding-right:3.5rem;">
+  <div class="section-label">System Architecture</div>
+  <h2 class="fade-in">AI 로그 분석 시스템 구성</h2>
+
+  <!-- ── DIAGRAM 1: Backend Flow ── -->
+  <div class="fade-in delay-2" style="margin-bottom:2rem;">
+    <div class="layer-label" style="margin-bottom:1rem;">Backend 서비스 흐름도</div>
+    <div class="flow-wrap" style="overflow-x:auto;">
+
+      <!--
+        5-row × 13-col grid (재구성)
+        Cols: [robots] [labeled→] [sources] [labeled→] [recv] [→] [analyzer] [→] [action/refs] [→] [report] [→] [recipients]
+        Rows: [config] [↕] [MAIN] [↕] [llm / refs]
+        Left cluster: Robots → (클라우드관제 + CMS/SOTA/TMS Backend) → event_receiver
+        Right: llm_gateway → (유사이슈검색 · 기능별 data · source code)
+      -->
+      <div style="
+        display: grid;
+        grid-template-columns: auto auto auto auto auto 24px auto 28px auto 24px auto 24px auto;
+        grid-template-rows: auto 14px auto 14px auto;
+        align-items: center;
+        justify-items: center;
+        row-gap: 0; column-gap: 0;
+      ">
+        <!-- ─── config_manager · col7, row1 ─── -->
+        <div class="flow-node" style="grid-column:7; grid-row:1; text-align:center; width:155px; background:rgba(135,124,156,0.16); border-color:rgba(135,124,156,0.65);">
+          <div class="flow-node-title">⚙️ config_manager</div>
+          <div class="flow-node-sub">LLM 옵션 · 분석 파라미터</div>
+          <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
+            <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:60%; height:100%; background:#877c9c;"></div></div>
+            <span style="font-size:0.6rem; font-weight:800; color:#877c9c;">60%</span>
+          </div>
+        </div>
+
+        <!-- ↕ · col7, row2 -->
+        <div style="grid-column:7; grid-row:2; color:rgba(251,191,36,0.5); font-size:0.9rem; line-height:1;">↕</div>
+
+        <!-- ─── 🤖 ROBOTS · col1, row3 (main line) ─── -->
+        <div style="grid-column:1; grid-row:3; text-align:center; padding:0 4px;">
+          <div style="font-size:1.5rem; line-height:1; margin-bottom:4px;">🤖🤖🤖</div>
+          <div class="flow-node" style="width:92px; border-color:rgba(0,212,170,0.4); background:rgba(0,212,170,0.06);">
+            <div class="flow-node-title" style="color:var(--teal); font-size:0.77rem;">Robots</div>
+          </div>
+        </div>
+
+        <!-- labeled arrow col2: log (ros2 mcap) -->
+        <div style="grid-column:2; grid-row:3; display:flex; flex-direction:column; align-items:center; gap:1px; padding:0 8px;">
+          <div style="font-size:0.6rem; color:rgba(0,212,170,0.55); white-space:nowrap;">📡 log</div>
+          <div style="color:var(--teal); font-size:1.1rem; line-height:1;">→</div>
+          <div style="font-size:0.6rem; color:rgba(0,212,170,0.55); white-space:nowrap;">(ros2 mcap)</div>
+        </div>
+
+        <!-- ─── 데이터 소스 (클라우드 = main line, 3 Backend = 하단) · col3, rows 3-5 ─── -->
+        <div style="grid-column:3; grid-row:3/6; align-self:start; display:flex; flex-direction:column; gap:7px;">
+          <!-- 클라우드 관제 (main line) -->
+          <div class="flow-node" style="width:138px; text-align:center; background:rgba(135,124,156,0.16); border-color:rgba(135,124,156,0.65);">
+            <div class="flow-node-title">☁️ 클라우드 관제</div>
+            <div class="flow-node-sub">AWS · log 수신</div>
+            <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
+              <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:60%; height:100%; background:#877c9c;"></div></div>
+              <span style="font-size:0.6rem; font-weight:800; color:#877c9c;">60%</span>
+            </div>
+          </div>
+          <!-- 3 Backend (compact) -->
+          <div class="flow-node" style="min-width:0; width:138px; padding:0.4rem 0.6rem; text-align:center; background:rgba(240,116,33,0.16); border-color:rgba(240,116,33,0.65);">
+            <div style="display:flex; align-items:center; gap:5px;">
+              <span class="flow-node-title" style="font-size:0.68rem; white-space:nowrap;">🗂️ CMS</span>
+              <div style="flex:1; height:4px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:5%; height:100%; background:#f07421;"></div></div>
+              <span style="font-size:0.56rem; font-weight:800; color:#f07421;">5%</span>
+            </div>
+          </div>
+          <div class="flow-node" style="min-width:0; width:138px; padding:0.4rem 0.6rem; text-align:center; background:rgba(240,116,33,0.16); border-color:rgba(240,116,33,0.65);">
+            <div style="display:flex; align-items:center; gap:5px;">
+              <span class="flow-node-title" style="font-size:0.68rem; white-space:nowrap;">🚀 SOTA</span>
+              <div style="flex:1; height:4px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:5%; height:100%; background:#f07421;"></div></div>
+              <span style="font-size:0.56rem; font-weight:800; color:#f07421;">5%</span>
+            </div>
+          </div>
+          <div class="flow-node" style="min-width:0; width:138px; padding:0.4rem 0.6rem; text-align:center; background:rgba(240,116,33,0.16); border-color:rgba(240,116,33,0.65);">
+            <div style="display:flex; align-items:center; gap:5px;">
+              <span class="flow-node-title" style="font-size:0.68rem; white-space:nowrap;">📋 TMS</span>
+              <div style="flex:1; height:4px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:5%; height:100%; background:#f07421;"></div></div>
+              <span style="font-size:0.56rem; font-weight:800; color:#f07421;">5%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- labeled arrow col4: log (ros2 mcap) → event_receiver -->
+        <div style="grid-column:4; grid-row:3; display:flex; flex-direction:column; align-items:center; gap:1px; padding:0 8px;">
+          <div style="font-size:0.6rem; color:rgba(0,212,170,0.55); white-space:nowrap;">log</div>
+          <div style="color:var(--teal); font-size:1.1rem; line-height:1;">→</div>
+          <div style="font-size:0.6rem; color:rgba(0,212,170,0.55); white-space:nowrap;">전달</div>
+        </div>
+
+        <!-- ─── event_receiver · col5, row3 (main line) ─── -->
+        <div class="flow-node" style="grid-column:5; grid-row:3; width:140px; background:rgba(135,124,156,0.16); border-color:rgba(135,124,156,0.65);">
+          <div class="flow-node-title">📥 event_receiver</div>
+          <div class="flow-node-sub">로그 모니터링<br/>에러 탐지</div>
+          <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
+            <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:60%; height:100%; background:#877c9c;"></div></div>
+            <span style="font-size:0.6rem; font-weight:800; color:#877c9c;">60%</span>
+          </div>
+        </div>
+
+        <!-- → col6, row3 -->
+        <div style="grid-column:6; grid-row:3; color:var(--teal); font-size:1rem;">→</div>
+
+        <!-- ─── event_analyzer · col7, row3 ─── -->
+        <div class="flow-node" style="grid-column:7; grid-row:3; width:155px; background:rgba(135,124,156,0.16); border-color:rgba(135,124,156,0.65);">
+          <div class="flow-node-title">🔍 event_analyzer</div>
+          <div class="flow-node-sub">이슈 기능 분류<br/>이슈 분석 · 솔루션 제안</div>
+          <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
+            <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:60%; height:100%; background:#877c9c;"></div></div>
+            <span style="font-size:0.6rem; font-weight:800; color:#877c9c;">60%</span>
+          </div>
+        </div>
+
+        <!-- → col8, row3 (analyzer → action) -->
+        <div style="grid-column:8; grid-row:3; color:var(--teal); font-size:1rem;">→</div>
+
+        <!-- ─── action_runner · col9, row3 ─── -->
+        <div class="flow-node" style="grid-column:9; grid-row:3; width:132px; background:rgba(154,122,134,0.16); border-color:rgba(154,122,134,0.65);">
+          <div class="flow-node-title">⚡ action_runner</div>
+          <div class="flow-node-sub">후속 액션 실행</div>
+          <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
+            <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:50%; height:100%; background:#9a7a86;"></div></div>
+            <span style="font-size:0.6rem; font-weight:800; color:#9a7a86;">50%</span>
+          </div>
+        </div>
+
+        <!-- → col10, row3 -->
+        <div style="grid-column:10; grid-row:3; color:var(--teal); font-size:1rem;">→</div>
+
+        <!-- ─── report_manager · col11, row3 ─── -->
+        <div class="flow-node" style="grid-column:11; grid-row:3; width:135px; background:rgba(97,127,201,0.16); border-color:rgba(97,127,201,0.65);">
+          <div class="flow-node-title">📊 report_mgr</div>
+          <div class="flow-node-sub">HTML 리포트 생성<br/>이메일 자동 발송</div>
+          <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
+            <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:70%; height:100%; background:#617fc9;"></div></div>
+            <span style="font-size:0.6rem; font-weight:800; color:#617fc9;">70%</span>
+          </div>
+        </div>
+
+        <!-- → col12, row3 -->
+        <div style="grid-column:12; grid-row:3; color:rgba(134,239,172,0.7); font-size:1rem;">→</div>
+
+        <!-- ─── RECIPIENTS · col13, row3 ─── -->
+        <div style="grid-column:13; grid-row:3; text-align:center; padding:0 4px;">
+          <div style="font-size:1.4rem; line-height:1; margin-bottom:4px;">👨‍💻👩‍💻🔬</div>
+          <div class="flow-node" style="width:106px; border-color:rgba(134,239,172,0.3); background:rgba(134,239,172,0.05);">
+            <div class="flow-node-title" style="color:#86efac; font-size:0.76rem;">개발 · QE 담당자</div>
+            <div class="flow-node-sub">📧 리포트 수신</div>
+          </div>
+        </div>
+
+        <!-- ↕ connector · col7, row4 -->
+        <div style="grid-column:7; grid-row:4; color:rgba(59,130,246,0.5); font-size:0.9rem; line-height:1;">↕</div>
+
+        <!-- ─── llm_gateway · col7, row5 ─── -->
+        <div class="flow-node" style="grid-column:7; grid-row:5; align-self:start; width:155px; background:rgba(135,124,156,0.16); border-color:rgba(135,124,156,0.65);">
+          <div class="flow-node-title">🧠 llm_gateway</div>
+          <div class="flow-node-sub">AI API 라우팅<br/>(Azure / Gemini)</div>
+          <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
+            <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:60%; height:100%; background:#877c9c;"></div></div>
+            <span style="font-size:0.6rem; font-weight:800; color:#877c9c;">60%</span>
+          </div>
+        </div>
+
+        <!-- 참조 arrow · col8, row5 (llm → refs) -->
+        <div style="grid-column:8; grid-row:5; align-self:start; margin-top:30px; display:flex; flex-direction:column; align-items:center; gap:1px;">
+          <div style="font-size:0.6rem; color:rgba(59,130,246,0.6); white-space:nowrap;">참조</div>
+          <div style="color:rgba(59,130,246,0.7); font-size:1.1rem; line-height:1;">→</div>
+        </div>
+
+        <!-- ─── REFERENCE ITEMS stack · col9, row5 ─── -->
+        <div style="grid-column:9; grid-row:5; align-self:start; display:flex; flex-direction:column; gap:8px; padding:4px 0; width:150px;">
+          <div class="flow-node" style="text-align:center; background:rgba(220,117,56,0.16); border-color:rgba(220,117,56,0.65);">
+            <div class="flow-node-title" style="font-size:0.74rem;">🔎 유사 이슈 검색</div>
+            <div class="flow-node-sub">llm 사용 효율화</div>
+            <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
+              <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:15%; height:100%; background:#dc7538;"></div></div>
+              <span style="font-size:0.6rem; font-weight:800; color:#dc7538;">15%</span>
+            </div>
+          </div>
+          <div class="flow-node" style="text-align:center; background:rgba(220,117,56,0.16); border-color:rgba(220,117,56,0.65);">
+            <div class="flow-node-title" style="font-size:0.74rem;">📋 기능별 data &amp; 지침</div>
+            <div class="flow-node-sub">기능별 custom 프롬프트</div>
+            <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
+              <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:15%; height:100%; background:#dc7538;"></div></div>
+              <span style="font-size:0.6rem; font-weight:800; color:#dc7538;">15%</span>
+            </div>
+          </div>
+          <div class="flow-node" style="text-align:center; background:rgba(220,117,56,0.16); border-color:rgba(220,117,56,0.65);">
+            <div class="flow-node-title" style="font-size:0.74rem;">📁 source code</div>
+            <div class="flow-node-sub">git repository</div>
+            <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
+              <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:15%; height:100%; background:#dc7538;"></div></div>
+              <span style="font-size:0.6rem; font-weight:800; color:#dc7538;">15%</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- ── 진척률(완성도) 범례 ── -->
+    <div style="margin-top:1.2rem; background:var(--navy3); border:1px solid var(--border); border-radius:12px; padding:1rem 1.4rem;">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.8rem;">
+        <div style="font-size:0.78rem; font-weight:700; color:var(--text); letter-spacing:0.03em;">📊 모듈 개발 진척률 (완성도)</div>
+      </div>
+      <div style="margin-top:0.8rem; display:flex; align-items:center; gap:0.8rem;">
+        <span style="font-size:0.7rem; font-weight:700; color:#f97316;">0%</span>
+        <div style="position:relative; flex:1; height:14px; border-radius:7px; background:linear-gradient(90deg, #f97316 0%, #9a7a86 50%, #3b82f6 100%);">
+          <div style="position:absolute; left:15%; top:-3px; bottom:-3px; width:1px; background:rgba(255,255,255,0.45);"></div>
+          <div style="position:absolute; left:65%; top:-3px; bottom:-3px; width:1px; background:rgba(255,255,255,0.45);"></div>
+          <div style="position:absolute; left:85%; top:-3px; bottom:-3px; width:1px; background:rgba(255,255,255,0.45);"></div>
+        </div>
+        <span style="font-size:0.7rem; font-weight:700; color:#3b82f6;">100%</span>
+      </div>
+      <div style="margin-top:0.35rem; display:flex; padding:0 32px; font-size:0.64rem; font-weight:600;">
+        <div style="flex:0 0 15%; text-align:center; color:#dc7538;">검토중<br/><span style="font-size:0.56rem; font-weight:400; color:var(--muted);">0~15%</span></div>
+        <div style="flex:0 0 50%; text-align:center; color:#9a7a86;">구현중<br/><span style="font-size:0.56rem; font-weight:400; color:var(--muted);">15~65%</span></div>
+        <div style="flex:0 0 20%; text-align:center; color:#617fc9;">연동 테스트중<br/><span style="font-size:0.56rem; font-weight:400; color:var(--muted);">65~85%</span></div>
+        <div style="flex:0 0 15%; text-align:center; color:#3b82f6;">종합 테스트중<br/><span style="font-size:0.56rem; font-weight:400; color:var(--muted);">85~100%</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── DIAGRAM 2: AI Assistant (Frontend) ── -->
+  <div class="fade-in delay-3" style="margin-bottom:2rem;">
+    <div class="layer-label" style="margin-bottom:1rem;">Frontend · AI Assistant 모듈 구성</div>
+
+    <!-- Outer layer: 로봇 관제 Frontend -->
+    <div class="robot-frontend-wrap">
+      <div class="robot-frontend-label">🖥️ 로봇 관제 Frontend</div>
+
+      <!-- Inner layer: AI Assistant -->
+      <div class="ai-assistant-wrap">
+        <div class="ai-assistant-label">🤖 AI Assistant</div>
+        <div style="font-size:0.76rem; color:#93c5fd; margin-bottom:1.2rem; letter-spacing:0.01em;">
+          AI Chat 을 통한 정보 조회 및 작업 지시
+        </div>
+        <div class="ai-module-grid">
+          <div class="ai-module">
+            <div class="ai-module-icon">🦾</div>
+            Robot Management
+            <div style="font-size:0.7rem; color:var(--muted);  margin-top:0.3rem; font-weight:400;">로봇 상태 · 장애 관제</div>
+          </div>
+          <div class="ai-module">
+            <div class="ai-module-icon">🚀</div>
+            SOTA
+            <div style="font-size:0.7rem; color:var(--muted); margin-top:0.3rem; font-weight:400;">SW Over-The-Air</div>
+          </div>
+          <div class="ai-module">
+            <div class="ai-module-icon">🗂️</div>
+            CMS
+            <div style="font-size:0.7rem; color:var(--muted); margin-top:0.3rem; font-weight:400;">콘텐츠 관리</div>
+          </div>
+          <div class="ai-module">
+            <div class="ai-module-icon">📋</div>
+            TMS
+            <div style="font-size:0.7rem; color:var(--muted); margin-top:0.3rem; font-weight:400;">태스크 관리</div>
+          </div>
+          <div class="ai-module tbd">
+            <div class="ai-module-icon">🧪</div>
+            Learning
+            <div style="font-size:0.7rem; margin-top:0.3rem; font-weight:400;">(TBD)</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- LLM Providers -->
+  <div class="fade-in delay-3">
+    <div class="layer-label">LLM 프로바이더 (llm_gateway 라우팅)</div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+      <div class="card" style="display:flex; align-items:center; gap:1rem;">
+        <div class="icon-circle ic-blue" style="font-size:1.5rem;">☁️</div>
+        <div>
+          <div class="bold">Azure OpenAI</div>
+          <div class="text-muted" style="font-size:0.8rem;">gpt-5 · Stage1 분류 + Stage2 분석</div>
+        </div>
+        <span class="tag tag-blue" style="margin-left:auto;">운영</span>
+      </div>
+      <div class="card" style="display:flex; align-items:center; gap:1rem;">
+        <div class="icon-circle ic-teal" style="font-size:1.5rem;">🌐</div>
+        <div>
+          <div class="bold">Vertex AI (Gemini)</div>
+          <div class="text-muted" style="font-size:0.8rem;">gemini-2.5-flash · Fallback / Mock 지원</div>
+        </div>
+        <span class="tag tag-teal" style="margin-left:auto;">백업</span>
+      </div>
+    </div>
+  </div>
+</section>
+<div class="divider"></div>
+
+<!-- ── 4. AI PIPELINE ── -->
+<section id="pipeline">
+  <div class="section-label">AI Analysis Pipeline</div>
+  <h2 class="fade-in">AI 분석 파이프라인</h2>
+  <p class="text-muted gap-sm fade-in delay-1" style="margin-bottom:2rem;">
+    로봇 로그 수신부터 대응 가이드 발송까지 완전 자동화된 2-Stage 분석 흐름
+  </p>
+
+  <!-- Main Flow -->
+  <div class="pipeline fade-in delay-1">
+    <div class="pipe-step">
+      <div class="pipe-num">1</div>
+      <div class="pipe-title">로그 수신</div>
+      <div class="pipe-sub">event_receiver<br/>로봇 → POST /event</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-num">2</div>
+      <div class="pipe-title">DB 저장</div>
+      <div class="pipe-sub">event_analyzer<br/>이벤트 · 로그 번들 저장</div>
+    </div>
+    <div class="pipe-step" style="background:rgba(251,191,36,0.06);">
+      <div class="pipe-num" style="background:#fbbf24;">3</div>
+      <div class="pipe-title">Stage1: 분류</div>
+      <div class="pipe-sub">llm_gateway<br/>func 분류 + confidence</div>
+    </div>
+    <div class="pipe-step" style="background:rgba(0,212,170,0.06);">
+      <div class="pipe-num">4</div>
+      <div class="pipe-title">Stage2: 분석</div>
+      <div class="pipe-sub">llm_gateway<br/>원인·조치 가이드 생성</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-num">5</div>
+      <div class="pipe-title">결과 저장</div>
+      <div class="pipe-sub">summary / reason<br/>solutions / severity</div>
+    </div>
+    <div class="pipe-step">
+      <div class="pipe-num">6</div>
+      <div class="pipe-title">리포트 발송</div>
+      <div class="pipe-sub">report_manager<br/>HTML 이메일 자동 발송</div>
+    </div>
+  </div>
+
+  <!-- Stage Detail -->
+  <div class="card-grid-2 gap-lg fade-in delay-2">
+    <div class="card" style="border-color:rgba(251,191,36,0.3); background:rgba(251,191,36,0.05);">
+      <div style="display:flex; align-items:center; gap:0.7rem; margin-bottom:1rem;">
+        <span class="tag tag-yellow">Stage 1 · 분류</span>
+      </div>
+      <p style="font-size:0.88rem; color:var(--muted); margin-bottom:1rem;">
+        로그 메시지를 <strong style="color:var(--text);">기능별(func)</strong>로 분류하고 분류 신뢰도(confidence 0~1)를 산출
+      </p>
+      <div style="display:flex; flex-direction:column; gap:0.5rem;">
+        <div style="display:flex; justify-content:space-between; font-size:0.82rem;">
+          <span class="text-muted">분류 항목 (func)</span>
+          <span class="text-teal bold">HW / SW / Nav / …</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:0.82rem;">
+          <span class="text-muted">신뢰도 (confidence)</span>
+          <span class="text-yellow bold">0.00 ~ 1.00</span>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="border-color:rgba(0,212,170,0.3); background:rgba(0,212,170,0.05);">
+      <div style="display:flex; align-items:center; gap:0.7rem; margin-bottom:1rem;">
+        <span class="tag tag-teal">Stage 2 · 분석</span>
+      </div>
+      <p style="font-size:0.88rem; color:var(--muted); margin-bottom:1rem;">
+        Stage1의 func 기준으로 <strong style="color:var(--text);">기능별 전용 프롬프트</strong>를 합성하여 심층 분석
+      </p>
+      <div style="display:flex; flex-direction:column; gap:0.5rem;">
+        <div style="display:flex; justify-content:space-between; font-size:0.82rem;">
+          <span class="text-muted">summary</span>
+          <span style="color:#e2e8f0;">장애 요약</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:0.82rem;">
+          <span class="text-muted">reason</span>
+          <span style="color:#e2e8f0;">원인 분석</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:0.82rem;">
+          <span class="text-muted">solutions</span>
+          <span style="color:#e2e8f0;">조치 가이드</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:0.82rem;">
+          <span class="text-muted">severity</span>
+          <span style="color:#e2e8f0;">high / medium / low</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MCP Chat + RAG -->
+  <div class="card gap-lg fade-in delay-3" style="border-color:rgba(59,130,246,0.3); background:rgba(59,130,246,0.04);">
+    <div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem;">
+      <div class="icon-circle ic-blue" style="font-size:1.4rem;">💬</div>
+      <div>
+        <div class="bold">AI Chat + MCP + RAG 연동</div>
+        <div class="text-muted" style="font-size:0.85rem; margin-top:0.2rem;">
+          사용자 질의 → RAG 유사 이슈 검색 + MCP 도구 호출 → LLM 응답 생성
+        </div>
+      </div>
+    </div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
+      <div style="background:rgba(59,130,246,0.07); border:1px solid rgba(59,130,246,0.25); border-radius:10px; padding:1rem;">
+        <div style="font-size:0.73rem; color:#93c5fd; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; margin-bottom:0.6rem;">🔌 MCP 연동</div>
+        <div style="font-size:0.82rem; color:var(--muted); line-height:1.5;">
+          사용자 → <span class="mono">Next /api/chat</span> → <span style="color:var(--text);">llm_gateway</span> → <span style="color:#93c5fd;">mcp_tools</span> 도구 호출<br/>
+          <span style="font-size:0.76rem;">분석 결과 조회 · 로봇 조치 실행</span>
+        </div>
+      </div>
+      <div style="background:rgba(0,212,170,0.06); border:1px solid rgba(0,212,170,0.25); border-radius:10px; padding:1rem;">
+        <div style="font-size:0.73rem; color:var(--teal); font-weight:700; letter-spacing:0.06em; text-transform:uppercase; margin-bottom:0.6rem;">🔎 RAG 연동</div>
+        <div style="font-size:0.82rem; color:var(--muted); line-height:1.5;">
+          사용자 질의 → <span style="color:var(--text);">벡터 DB</span> (과거 이슈·해결 이력) → 유사 케이스 검색 → 컨텍스트 삽입<br/>
+          <span style="font-size:0.76rem; color:var(--teal);">LLM 응답 정확도 향상 · 반복 토큰 절감</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+<div class="divider"></div>
+
+<!-- ── 5. MM CALCULATION ── -->
+<section id="mm" class="full">
+<div class="inner">
+  <div class="section-label">MM 계산 · 효과 측정</div>
+  <h2 class="fade-in">MM 절감 계산 방식</h2>
+  <p class="text-muted gap-sm fade-in delay-1" style="margin-bottom:0.5rem;">
+    총 목표: <strong style="color:var(--text);">23.25 MM 절감 / 2.3억원 절감</strong> (인건비 + 출장비)
+  </p>
+
+  <!-- Formula -->
+  <div class="mm-formula fade-in delay-1">
+    <div class="formula-line">MM 계산 공식</div>
+    <div class="formula-eq">
+      <span>총 절감시간(hr)</span> = 절감시간(hr/건) × 인원(명) × 적용건수(건/년)
+    </div>
+    <div class="formula-eq" style="font-size:1.1rem; color:var(--muted);">
+      월 MM = 총 절감시간 ÷ <span>160 hr/MM</span>  &nbsp;·&nbsp;  연간 MM = 월 MM × 12
+    </div>
+  </div>
+
+  <!-- ① 장애 대응 MM -->
+  <div style="margin-top:2.5rem;" class="fade-in delay-1">
+    <h3 style="margin-bottom:1rem;">① 장애 대응 리드타임 MM 절감</h3>
+    <div class="mm-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="text-align:left;">항목</th>
+            <th>이슈 진단</th>
+            <th>이슈 분석</th>
+            <th>조치</th>
+            <th style="color:#fff;">합계</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="td-label">기존 소요시간 (hr/건)</td>
+            <td>1.0</td>
+            <td>1.5</td>
+            <td>1.0</td>
+            <td style="color:var(--muted);">3.5 hr</td>
+          </tr>
+          <tr>
+            <td class="td-label">개선 후 소요시간 (hr/건)</td>
+            <td>0.7</td>
+            <td>1.0</td>
+            <td>0.6</td>
+            <td style="color:var(--teal);">2.3 hr</td>
+          </tr>
+          <tr>
+            <td class="td-label">단축비율 (%)</td>
+            <td>33%</td>
+            <td>33%</td>
+            <td>40%</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="td-label">절감시간 (hr/건)</td>
+            <td>0.3</td>
+            <td>0.5</td>
+            <td>0.4</td>
+            <td>1.2 hr</td>
+          </tr>
+          <tr>
+            <td class="td-label">인원 (명)</td>
+            <td colspan="3">62명 (기능별 담당자 60명 + QE 2명)</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="td-label">적용 건수 / 년</td>
+            <td colspan="3">50건 (월 2건 × 25일)</td>
+            <td>—</td>
+          </tr>
+          <tr>
+            <td class="td-label" style="font-weight:700; color:var(--text) !important;">총 절감시간 (hr/년)</td>
+            <td>930 hr</td>
+            <td>1,550 hr</td>
+            <td>1,240 hr</td>
+            <td style="color:var(--teal) !important; font-size:1rem !important;">3,720 hr</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- MM Breakdown -->
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-top:1.5rem;">
+      <div class="card">
+        <div class="text-muted" style="font-size:0.78rem; margin-bottom:1rem; letter-spacing:0.05em;">기존 MM (연간)</div>
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:0.5rem;">
+          <span class="text-muted">이슈 진단</span>
+          <span>3,100 hr ÷ 160 = <span class="text-red bold">19.38 MM</span></span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:0.5rem;">
+          <span class="text-muted">이슈 분석</span>
+          <span>4,650 hr ÷ 160 = <span class="text-red bold">29.06 MM</span></span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:1rem;">
+          <span class="text-muted">조치</span>
+          <span>3,100 hr ÷ 160 = <span class="text-red bold">19.38 MM</span></span>
+        </div>
+        <div style="border-top:1px solid var(--border); padding-top:0.8rem; display:flex; justify-content:space-between;">
+          <span class="bold">합계</span>
+          <span class="text-red bold" style="font-size:1.1rem;">67.81 MM</span>
+        </div>
+        <div class="progress-bar" style="margin-top:0.5rem;">
+          <div class="progress-fill" style="width:100%; background:#f87171;"></div>
+        </div>
+      </div>
+      <div class="card" style="border-color:rgba(0,212,170,0.3);">
+        <div class="text-muted" style="font-size:0.78rem; margin-bottom:1rem; letter-spacing:0.05em;">개선 후 MM (연간)</div>
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:0.5rem;">
+          <span class="text-muted">이슈 진단</span>
+          <span>2,170 hr ÷ 160 = <span class="text-teal bold">13.56 MM</span></span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:0.5rem;">
+          <span class="text-muted">이슈 분석</span>
+          <span>3,100 hr ÷ 160 = <span class="text-teal bold">19.38 MM</span></span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:1rem;">
+          <span class="text-muted">조치</span>
+          <span>1,860 hr ÷ 160 = <span class="text-teal bold">11.63 MM</span></span>
+        </div>
+        <div style="border-top:1px solid rgba(0,212,170,0.3); padding-top:0.8rem; display:flex; justify-content:space-between;">
+          <span class="bold">합계</span>
+          <span class="text-teal bold" style="font-size:1.1rem;">44.56 MM</span>
+        </div>
+        <div class="progress-bar" style="margin-top:0.5rem;">
+          <div class="progress-fill" style="width:65.7%; background:var(--teal);"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ② 출장비 -->
+  <div style="margin-top:3rem;" class="fade-in delay-2">
+    <h3 style="margin-bottom:1rem;">② 현장 출동 비용 절감</h3>
+    <div class="mm-table-wrap">
+      <table class="trip-table">
+        <thead>
+          <tr>
+            <th style="text-align:left;">출장 구분</th>
+            <th>기존 횟수/월</th>
+            <th>개선 횟수/월</th>
+            <th>단가 (인원 10명)</th>
+            <th>기존 비용/월</th>
+            <th>개선 비용/월</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="color: var(--text) !important;">
+            <td class="td-label" style="color:var(--text) !important; font-weight:normal !important;">국내 당일 출장</td>
+            <td style="color:var(--text) !important;">1.0회</td>
+            <td style="color:var(--teal) !important;">0.7회</td>
+            <td style="color:var(--muted) !important; font-size:0.82rem !important;">150,000원 × 10명</td>
+            <td style="color:#f87171 !important;">1,500,000원</td>
+            <td style="color:var(--teal) !important;">1,050,000원</td>
+          </tr>
+          <tr style="color: var(--text) !important;">
+            <td class="td-label" style="color:var(--text) !important; font-weight:normal !important;">국내 1박 출장</td>
+            <td style="color:var(--text) !important;">0.25회</td>
+            <td style="color:var(--teal) !important;">0.15회</td>
+            <td style="color:var(--muted) !important; font-size:0.82rem !important;">250,000원 × 10명</td>
+            <td style="color:#f87171 !important;">625,000원</td>
+            <td style="color:var(--teal) !important;">375,000원</td>
+          </tr>
+          <tr style="color: var(--text) !important;">
+            <td class="td-label" style="color:var(--text) !important; font-weight:normal !important;">해외 1주 출장</td>
+            <td style="color:var(--text) !important;">0.25회</td>
+            <td style="color:var(--teal) !important;">0.15회</td>
+            <td style="color:var(--muted) !important; font-size:0.82rem !important;">7,000,000원 × 10명</td>
+            <td style="color:#f87171 !important;">17,500,000원</td>
+            <td style="color:var(--teal) !important;">10,500,000원</td>
+          </tr>
+          <tr>
+            <td class="td-label" style="font-weight:700; color:var(--text) !important;">합계 (월)</td>
+            <td colspan="3"></td>
+            <td style="color:#f87171 !important; font-size:1rem !important; font-weight:700 !important;">19,625,000원</td>
+            <td style="color:var(--teal) !important; font-size:1rem !important; font-weight:700 !important;">11,925,000원</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:1rem; padding:0.9rem 1.2rem; background:rgba(0,212,170,0.07); border:1px solid rgba(0,212,170,0.2); border-radius:10px; display:flex; gap:2rem;">
+      <div><span class="text-muted" style="font-size:0.82rem;">월 절감 출장비</span><br/><span class="bold text-teal">7,700,000원</span></div>
+      <div><span class="text-muted" style="font-size:0.82rem;">연 절감 출장비</span><br/><span class="bold text-teal">92,400,000원</span></div>
+      <div><span class="text-muted" style="font-size:0.82rem;">출장 감소율</span><br/><span class="bold text-teal">39.2%</span></div>
+    </div>
+  </div>
+
+  <!-- ③ Total -->
+  <div style="margin-top:3rem;" class="fade-in delay-3">
+    <h3 style="margin-bottom:1rem;">③ 총 절감 효과 (연간)</h3>
+    <div style="background:var(--card); border:1px solid var(--border); border-radius:14px; padding:1.5rem 2rem; margin-bottom:1.5rem;">
+      <table style="width:auto; min-width:600px;">
+        <thead>
+          <tr>
+            <th style="text-align:left;">구분</th>
+            <th>기존</th>
+            <th>개선 후</th>
+            <th style="color:var(--teal);">절감</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="td-label" style="color:var(--text) !important; font-weight:normal !important;">인건비 (MM 기준, 1MM=100만원)</td>
+            <td style="color:#f87171 !important;">67,813,000원 (67.81 MM)</td>
+            <td style="color:var(--teal) !important;">44,563,000원 (44.56 MM)</td>
+            <td style="color:var(--yellow) !important; font-weight:700 !important;">23,250,000원</td>
+          </tr>
+          <tr>
+            <td class="td-label" style="color:var(--text) !important; font-weight:normal !important;">출장 비용 (연간)</td>
+            <td style="color:#f87171 !important;">235,500,000원</td>
+            <td style="color:var(--teal) !important;">143,100,000원</td>
+            <td style="color:var(--yellow) !important; font-weight:700 !important;">92,400,000원</td>
+          </tr>
+          <tr>
+            <td class="td-label" style="font-weight:700; color:var(--text) !important;">합계</td>
+            <td style="color:#f87171 !important; font-weight:700 !important; font-size:1rem !important;">303,313,000원</td>
+            <td style="color:var(--teal) !important; font-weight:700 !important; font-size:1rem !important;">187,663,000원</td>
+            <td style="color:var(--teal) !important; font-weight:800 !important; font-size:1.1rem !important;">115,650,000원 ↓</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mm-result-grid">
+      <div class="mm-result-card">
+        <div class="mm-result-num" style="color:#f87171;">67.81</div>
+        <div class="mm-result-label">기존 MM / 년<br/>(인건비 기준)</div>
+      </div>
+      <div class="mm-result-card highlight">
+        <div class="mm-result-num">44.56</div>
+        <div class="mm-result-label">개선 후 MM / 년</div>
+      </div>
+      <div class="mm-result-card highlight">
+        <div class="mm-result-num" style="font-size:2.6rem;">23.25</div>
+        <div class="mm-result-label">MM 절감 (목표)<br/><span style="color:var(--teal);">34.3% 감소</span></div>
+      </div>
+      <div class="mm-result-card highlight" style="border-color:rgba(251,191,36,0.4); background:rgba(251,191,36,0.07);">
+        <div class="mm-result-num" style="color:#fbbf24; font-size:1.6rem;">2.3억원</div>
+        <div class="mm-result-label">총 비용 절감<br/><span style="color:#fbbf24;">(인건비+출장비)</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+<div class="divider"></div>
+
+<!-- ── 5.5 AI API COST ── -->
+<section id="apicost" class="full">
+<div class="inner">
+  <div class="section-label">AI API 운영 비용</div>
+  <h2 class="fade-in">이슈 토큰 사용량 &amp; 비용</h2>
+  <p class="text-muted gap-sm fade-in delay-1" style="margin-bottom:0.5rem;">
+    2-Stage 파이프라인(Stage1 분류 → Stage2 분석)이 로봇 이슈 1건을 처리할 때 소비하는 토큰량과 비용 추정
+  </p>
+  <p class="text-muted fade-in delay-1" style="font-size:0.8rem; margin-bottom:2rem;">
+    기준 모델: <strong style="color:#93c5fd;">Azure OpenAI · GPT-4.1</strong> (2025년 현행 단가 기준)
+    — 입력 <span class="mono">$2.00 / 1M tok</span>, 출력 <span class="mono">$8.00 / 1M tok</span> · 환율 1,380원/$ 기준.
+    단순 분류를 <strong style="color:var(--teal);">GPT-4.1-mini</strong>($0.40/$1.60)로 라우팅하면 비용이 약 80% 낮아집니다.
+  </p>
+
+  <!-- ① 토큰 사용량 -->
+  <div class="fade-in delay-1">
+    <h3 style="margin-bottom:1rem;">① 이슈 1건당 토큰 사용량 (추정)</h3>
+    <div class="mm-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="text-align:left;">처리 단계</th>
+            <th>주요 입력 컨텍스트</th>
+            <th>입력 토큰</th>
+            <th>출력 토큰</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="color:var(--text) !important;">
+            <td class="td-label" style="color:var(--text) !important; font-weight:600 !important;">Stage 1 · 분류</td>
+            <td style="color:var(--muted) !important; font-size:0.82rem !important;">분류 프롬프트 + func 후보 + 에러 ±5줄 로그</td>
+            <td style="color:var(--text) !important;">500 ~ 700</td>
+            <td style="color:var(--text) !important;">150 ~ 250</td>
+          </tr>
+          <tr style="color:var(--text) !important;">
+            <td class="td-label" style="color:var(--text) !important; font-weight:600 !important;">Stage 2 · 분석</td>
+            <td style="color:var(--muted) !important; font-size:0.82rem !important;">기능별 프롬프트 + RAG 유사이슈 컨텍스트 + 에러 로그</td>
+            <td style="color:var(--text) !important;">700 ~ 1,300</td>
+            <td style="color:var(--text) !important;">450 ~ 750</td>
+          </tr>
+          <tr>
+            <td class="td-label" style="font-weight:700; color:var(--text) !important;">합계 / 건</td>
+            <td style="color:var(--muted) !important; font-size:0.82rem !important;">총 1,800 ~ 3,000 tok</td>
+            <td style="color:var(--teal) !important; font-weight:700 !important; font-size:1rem !important;">1,200 ~ 2,000</td>
+            <td style="color:var(--teal) !important; font-weight:700 !important; font-size:1rem !important;">600 ~ 1,000</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="text-muted" style="font-size:0.78rem; margin-top:0.7rem;">
+      ※ Stage 2에 <strong style="color:var(--text);">RAG 유사 이슈 컨텍스트</strong>가 포함되어 입력 토큰이 Stage 1 대비 증가. rosbag/mcap 원본이 아닌 <strong style="color:var(--text);">에러 지점 ±5줄 윈도우만 추출</strong>(<span class="mono">ERROR_CONTEXT_LINES</span>)하여 전달. 한 이벤트에 에러 윈도우가 여러 개면 그 수에 비례해 증가.
+    </p>
+  </div>
+
+  <!-- ② 비용 환산 -->
+  <div style="margin-top:2.5rem;" class="fade-in delay-2">
+    <h3 style="margin-bottom:1rem;">② 비용 환산 (Azure OpenAI GPT-4.1 현행 단가 기준)</h3>
+    <div class="card" style="margin-bottom:1.5rem;">
+      <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:0.5rem;">
+        <span class="text-muted">입력 비용 (최소)</span>
+        <span>1,200 tok × <span class="mono">$2.00/1M</span> = <span class="bold">$0.0024</span></span>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:0.5rem;">
+        <span class="text-muted">입력 비용 (최대)</span>
+        <span>2,000 tok × <span class="mono">$2.00/1M</span> = <span class="bold">$0.0040</span></span>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:0.5rem;">
+        <span class="text-muted">출력 비용 (최소)</span>
+        <span>600 tok × <span class="mono">$8.00/1M</span> = <span class="bold">$0.0048</span></span>
+      </div>
+      <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:1rem;">
+        <span class="text-muted">출력 비용 (최대)</span>
+        <span>1,000 tok × <span class="mono">$8.00/1M</span> = <span class="bold">$0.0080</span></span>
+      </div>
+      <div style="border-top:1px solid var(--border); padding-top:0.8rem; display:flex; justify-content:space-between;">
+        <span class="bold">이슈 1건당 비용</span>
+        <span class="text-teal bold" style="font-size:1.1rem;">$0.0072 ~ $0.0120 (약 10원 ~ 17원)</span>
+      </div>
+    </div>
+
+    <!-- 연간 규모별 비용 -->
+    <h3 style="margin-bottom:1rem; margin-top:2rem;">③ 연간 처리 규모별 비용 (GPT-4.1 기준)</h3>
+    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:1rem; margin-bottom:1.5rem;">
+      <div class="card" style="text-align:center; border-color:rgba(0,212,170,0.3); background:rgba(0,212,170,0.04);">
+        <div style="font-size:0.72rem; color:var(--teal); margin-bottom:0.6rem; letter-spacing:0.1em; font-weight:600; text-transform:uppercase;">연간 100건</div>
+        <div style="font-size:1.7rem; font-weight:800; color:var(--teal); line-height:1.1;">990 ~ 1,660원</div>
+        <div style="font-size:0.78rem; color:var(--muted); margin-top:0.4rem;">$0.72 ~ $1.20 / year</div>
+        <div style="font-size:0.75rem; color:var(--muted); margin-top:0.9rem; padding-top:0.9rem; border-top:1px solid var(--border);">소규모 현장 · 시범 운영</div>
+      </div>
+      <div class="card" style="text-align:center; border-color:rgba(59,130,246,0.4); background:rgba(59,130,246,0.06);">
+        <div style="font-size:0.72rem; color:#93c5fd; margin-bottom:0.6rem; letter-spacing:0.1em; font-weight:600; text-transform:uppercase;">연간 1,000건</div>
+        <div style="font-size:1.7rem; font-weight:800; color:#93c5fd; line-height:1.1;">9,900 ~ 16,600원</div>
+        <div style="font-size:0.78rem; color:var(--muted); margin-top:0.4rem;">$7.20 ~ $12.00 / year</div>
+        <div style="font-size:0.75rem; color:var(--muted); margin-top:0.9rem; padding-top:0.9rem; border-top:1px solid var(--border);">중간 규모 · 실 운영</div>
+      </div>
+      <div class="card" style="text-align:center; border-color:rgba(251,191,36,0.4); background:rgba(251,191,36,0.06);">
+        <div style="font-size:0.72rem; color:#fbbf24; margin-bottom:0.6rem; letter-spacing:0.1em; font-weight:600; text-transform:uppercase;">연간 10,000건</div>
+        <div style="font-size:1.7rem; font-weight:800; color:#fbbf24; line-height:1.1;">99,000 ~ 166,000원</div>
+        <div style="font-size:0.78rem; color:var(--muted); margin-top:0.4rem;">$72 ~ $120 / year</div>
+        <div style="font-size:0.75rem; color:var(--muted); margin-top:0.9rem; padding-top:0.9rem; border-top:1px solid var(--border);">대규모 확산 · 전사 운영</div>
+      </div>
+    </div>
+
+    <!-- 모델 비교 -->
+    <div class="mm-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="text-align:left;">모델</th>
+            <th>입력 단가</th>
+            <th>출력 단가</th>
+            <th>1건당 비용</th>
+            <th>연 100건</th>
+            <th>연 1,000건</th>
+            <th>연 10,000건</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="td-label" style="color:var(--teal) !important; font-weight:700 !important;">GPT-4.1 ★</td>
+            <td style="color:var(--text) !important;">$2.00/1M</td>
+            <td style="color:var(--text) !important;">$8.00/1M</td>
+            <td style="color:var(--teal) !important; font-weight:700 !important;">$0.0072~$0.0120</td>
+            <td style="color:var(--teal) !important;">$0.72~$1.20<br/><span style="font-size:0.78rem;">(990~1,660원)</span></td>
+            <td style="color:var(--teal) !important; font-weight:700 !important;">$7.20~$12.00<br/><span style="font-size:0.78rem;">(9,900~16,600원)</span></td>
+            <td style="color:var(--teal) !important;">$72~$120<br/><span style="font-size:0.78rem;">(99,000~166,000원)</span></td>
+          </tr>
+          <tr>
+            <td class="td-label" style="color:var(--text) !important; font-weight:600 !important;">GPT-4o</td>
+            <td style="color:var(--text) !important;">$2.50/1M</td>
+            <td style="color:var(--text) !important;">$10.00/1M</td>
+            <td style="color:var(--yellow) !important; font-weight:700 !important;">$0.0090~$0.0150</td>
+            <td style="color:var(--muted) !important;">$0.90~$1.50<br/><span style="font-size:0.78rem;">(1,240~2,070원)</span></td>
+            <td style="color:var(--yellow) !important;">$9.00~$15.00<br/><span style="font-size:0.78rem;">(12,400~20,700원)</span></td>
+            <td style="color:var(--muted) !important;">$90~$150<br/><span style="font-size:0.78rem;">(124,000~207,000원)</span></td>
+          </tr>
+          <tr>
+            <td class="td-label" style="color:var(--text) !important; font-weight:600 !important;">GPT-4.1-mini</td>
+            <td style="color:var(--text) !important;">$0.40/1M</td>
+            <td style="color:var(--text) !important;">$1.60/1M</td>
+            <td style="color:#93c5fd !important; font-weight:700 !important;">$0.0014~$0.0024</td>
+            <td style="color:var(--muted) !important;">$0.14~$0.24<br/><span style="font-size:0.78rem;">(190~330원)</span></td>
+            <td style="color:#93c5fd !important;">$1.44~$2.40<br/><span style="font-size:0.78rem;">(2,000~3,300원)</span></td>
+            <td style="color:var(--muted) !important;">$14~$24<br/><span style="font-size:0.78rem;">(19,000~33,000원)</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="text-muted" style="font-size:0.78rem; margin-top:0.6rem;">★ GPT-4.1 권장 · 환율 1,380원/$ 기준</p>
+  </div>
+
+  <!-- ④ AI Chat 챗봇 비용 -->
+  <div style="margin-top:2.5rem;" class="fade-in delay-2">
+    <h3 style="margin-bottom:0.5rem;">④ AI Chat (챗봇 수준) 사용 비용 — 러프 추정</h3>
+    <p class="text-muted" style="font-size:0.82rem; margin-bottom:1.2rem;">
+      사용자가 직접 AI Chat에 질의하는 대화형 시나리오 기준 (자동 분석 파이프라인과 별개). MCP·RAG 없이 단순 대화 시나리오 기준.
+    </p>
+    <div class="mm-table-wrap" style="margin-bottom:1.2rem;">
+      <table>
+        <thead>
+          <tr>
+            <th style="text-align:left;">항목</th>
+            <th>구성</th>
+            <th>입력 토큰 (추정)</th>
+            <th>출력 토큰 (추정)</th>
+            <th>1회 대화 비용 (GPT-4.1)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="color:var(--text) !important;">
+            <td class="td-label" style="color:var(--text) !important; font-weight:600 !important;">단순 챗봇</td>
+            <td style="color:var(--muted) !important; font-size:0.82rem !important;">시스템 프롬프트 + 사용자 질문</td>
+            <td style="color:var(--text) !important;">500 ~ 1,000</td>
+            <td style="color:var(--text) !important;">200 ~ 400</td>
+            <td style="color:var(--text) !important;">$0.0026 ~ $0.0052<br/><span style="font-size:0.78rem; color:var(--muted);">(약 4원 ~ 7원)</span></td>
+          </tr>
+          <tr style="color:var(--text) !important;">
+            <td class="td-label" style="color:var(--text) !important; font-weight:600 !important;">히스토리 포함 (5턴)</td>
+            <td style="color:var(--muted) !important; font-size:0.82rem !important;">시스템 프롬프트 + 대화 이력 + 현재 질문</td>
+            <td style="color:var(--text) !important;">1,500 ~ 3,000</td>
+            <td style="color:var(--text) !important;">200 ~ 500</td>
+            <td style="color:var(--text) !important;">$0.0046 ~ $0.0100<br/><span style="font-size:0.78rem; color:var(--muted);">(약 6원 ~ 14원)</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:1rem; margin-bottom:1rem;">
+      <div class="card" style="text-align:center; border-color:rgba(192,132,252,0.3); background:rgba(192,132,252,0.04);">
+        <div style="font-size:0.72rem; color:#c084fc; margin-bottom:0.5rem; letter-spacing:0.08em; font-weight:600; text-transform:uppercase;">1인 · 일 10회 대화</div>
+        <div style="font-size:1.4rem; font-weight:800; color:#c084fc; line-height:1.1;">약 40 ~ 140원</div>
+        <div style="font-size:0.76rem; color:var(--muted); margin-top:0.3rem;">$0.03 ~ $0.10 / 일</div>
+      </div>
+      <div class="card" style="text-align:center; border-color:rgba(192,132,252,0.3); background:rgba(192,132,252,0.04);">
+        <div style="font-size:0.72rem; color:#c084fc; margin-bottom:0.5rem; letter-spacing:0.08em; font-weight:600; text-transform:uppercase;">1인 · 월 200회 대화</div>
+        <div style="font-size:1.4rem; font-weight:800; color:#c084fc; line-height:1.1;">약 800 ~ 2,800원</div>
+        <div style="font-size:0.76rem; color:var(--muted); margin-top:0.3rem;">$0.60 ~ $2.00 / 월</div>
+      </div>
+      <div class="card" style="text-align:center; border-color:rgba(192,132,252,0.4); background:rgba(192,132,252,0.06);">
+        <div style="font-size:0.72rem; color:#c084fc; margin-bottom:0.5rem; letter-spacing:0.08em; font-weight:600; text-transform:uppercase;">62명 · 월 200회/인</div>
+        <div style="font-size:1.4rem; font-weight:800; color:#c084fc; line-height:1.1;">약 50,000 ~ 174,000원</div>
+        <div style="font-size:0.76rem; color:var(--muted); margin-top:0.3rem;">$37 ~ $124 / 월</div>
+      </div>
+    </div>
+    <p class="text-muted" style="font-size:0.78rem;">
+      ※ 대화 히스토리를 누적할수록 입력 토큰 증가. 히스토리를 최근 5턴으로 제한하면 비용 안정적으로 관리 가능. GPT-4.1-mini 라우팅 시 약 80% 추가 절감.
+    </p>
+  </div>
+
+  <!-- ⑤ 시사점 -->
+  <div style="margin-top:2.5rem; display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;" class="fade-in delay-3">
+    <div class="solution-card">
+      <div class="icon-circle ic-teal">💰</div>
+      <div>
+        <h3 style="color:var(--teal); margin-bottom:0.3rem;">운영 비용 영향 미미</h3>
+        <p class="text-muted" style="font-size:0.88rem;">
+          연간 1,000건 처리 기준 AI API 비용 <strong style="color:var(--text);">약 9,900~16,600원</strong> 수준 — 10,000건으로 늘어나도 약 99,000~166,000원이며
+          총 절감 효과 <strong style="color:var(--teal);">2.3억원</strong> 대비 <strong style="color:var(--teal);">0.04~0.07% 수준</strong>에 불과.
+        </p>
+      </div>
+    </div>
+    <div class="solution-card" style="background:rgba(59,130,246,0.06); border-color:rgba(59,130,246,0.2);">
+      <div class="icon-circle ic-blue">⚡</div>
+      <div>
+        <h3 style="color:#93c5fd; margin-bottom:0.3rem;">비용 최적화 여지</h3>
+        <p class="text-muted" style="font-size:0.88rem;">
+          매 건 반복되는 시스템 프롬프트·출력 스키마에 <strong style="color:var(--text);">프롬프트 캐싱</strong> 적용 시 입력 비용 추가 절감,
+          Stage1 단순 분류는 <strong style="color:var(--text);">GPT-4.1-mini</strong>($0.40/$1.60)로 라우팅하면 비용이 약 80% 감소.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <p class="text-muted" style="font-size:0.76rem; margin-top:1.5rem;">
+    ※ 토큰량은 백엔드 코드(프롬프트·로그 추출 ±5줄) 기반 추정치. 단가는 Azure OpenAI 2025년 현행 Pay-as-you-go 기준(GPT-4.1: $2.00/$8.00 per 1M tok). 실제 Azure 계약 단가·리전·프롬프트 설계에 따라 달라지므로 도입 단계에서 실측·재산정 필요.
+  </p>
+</div>
+</section>
+<div class="divider"></div>
+
+<!-- ── 6. TIMELINE ── -->
+<section id="timeline">
+  <div class="section-label">추진 일정</div>
+  <h2 class="fade-in">'26년 추진 로드맵</h2>
+  <p class="text-muted gap-sm fade-in delay-1" style="margin-bottom:2rem;">
+    1Q 기본 체계 구축 → 2-3Q AI 에이전트 개발 → 4Q 고도화
+  </p>
+
+  <div class="timeline fade-in delay-1">
+    <div class="tl-col">
+      <div class="tl-quarter">1Q · Jan–Mar</div>
+      <div class="tl-badge badge-poc">운영관제 기본체계</div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-item-text">Workflow AS-IS 검토 및 Pain Point 정의</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-item-text">기본 대시보드 구축</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-item-text">로그수집 디버깅툴 개발</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-item-text">원격 조치용 OTA 기능</div>
+      </div>
+    </div>
+    <div class="tl-col">
+      <div class="tl-quarter">2Q · Apr–Jun</div>
+      <div class="tl-badge badge-poc">PoC &amp; 검증</div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-item-text">AI Agent 설계</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot" style="background:#fbbf24;"></div>
+        <div class="tl-item-text">V1 개발 착수<br/><span class="text-muted" style="font-size:0.76rem;">로그 요약 기능</span></div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot" style="background:#fbbf24;"></div>
+        <div class="tl-item-text">AI 분석 리포트 자동화</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-item-text">Workflow To-Be 확정</div>
+      </div>
+    </div>
+    <div class="tl-col">
+      <div class="tl-quarter">3Q · Jul–Sep</div>
+      <div class="tl-badge badge-dev">AI 기반 관제 고도화</div>
+      <div class="tl-item">
+        <div class="tl-dot" style="background:var(--teal);"></div>
+        <div class="tl-item-text">V2 개발 완료<br/><span class="text-muted" style="font-size:0.76rem;">장애 유형별 대응 가이드</span></div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot" style="background:var(--teal);"></div>
+        <div class="tl-item-text">로그 분석 자동화 고도화</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-item-text">실 사용자 PoC 검증</div>
+      </div>
+    </div>
+    <div class="tl-col">
+      <div class="tl-quarter">4Q · Oct–Dec</div>
+      <div class="tl-badge badge-adv">기능 고도화</div>
+      <div class="tl-item">
+        <div class="tl-dot" style="background:#93c5fd;"></div>
+        <div class="tl-item-text">이력 기반 대응 추천 시스템</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot" style="background:#93c5fd;"></div>
+        <div class="tl-item-text">운영·확산 정식 배포</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-item-text">KPI 모니터링 · AAR</div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="tl-item-text">MM 실적 집계 및 보고</div>
+      </div>
+    </div>
+  </div>
+</section>
+<div class="divider"></div>
+
+<!-- ── 7. FINAL EFFECT ── -->
+<section id="effect">
+  <div class="section-label">기대 효과</div>
+  <h2 class="fade-in">도입 효과 요약</h2>
+  <div class="final-grid gap-lg">
+    <div class="card fade-in delay-1" style="border-color:rgba(0,212,170,0.3);">
+      <div class="final-num">23.25 <span class="final-unit">MM</span></div>
+      <div class="final-desc">연간 인력 절감 목표 (34.3% 감소)<br/>67.81 MM → 44.56 MM</div>
+      <div class="progress-bar" style="margin-top:1rem;">
+        <div class="progress-fill" style="width:65.7%; background:var(--teal);"></div>
+      </div>
+    </div>
+    <div class="card fade-in delay-2" style="border-color:rgba(251,191,36,0.3);">
+      <div class="final-num" style="color:#fbbf24;">2.3 <span class="final-unit">억원</span></div>
+      <div class="final-desc">연간 총 비용 절감 목표<br/>인건비 + 출장비 9,240만원</div>
+      <div class="progress-bar" style="margin-top:1rem;">
+        <div class="progress-fill" style="width:39.2%; background:#fbbf24;"></div>
+      </div>
+    </div>
+    <div class="card fade-in delay-3">
+      <div class="final-num" style="font-size:2.2rem; color:#93c5fd;">34% <span class="final-unit">단축</span></div>
+      <div class="final-desc">장애 대응 리드타임 단축<br/>3.5 hr → 2.3 hr / 건</div>
+    </div>
+    <div class="card fade-in delay-4">
+      <div class="final-num" style="font-size:2.2rem; color:#c084fc;">39% <span class="final-unit">감소</span></div>
+      <div class="final-desc">현장 출동 횟수 감소<br/>원격 AI 분석으로 불필요 출동 차단</div>
+    </div>
+  </div>
+
+  <!-- Tech stack footer -->
+  <div style="margin-top:3rem; padding:1.5rem; background:var(--card); border-radius:14px; border:1px solid var(--border);" class="fade-in delay-2">
+    <div class="layer-label" style="margin-bottom:1rem;">기술 스택</div>
+    <div style="display:flex; flex-wrap:wrap; gap:0.7rem;">
+      <span class="tag tag-teal">NestJS</span>
+      <span class="tag tag-teal">TypeScript</span>
+      <span class="tag tag-blue">React + Vite</span>
+      <span class="tag tag-blue">Azure OpenAI API</span>
+      <span class="tag tag-yellow">GitHub Copilot</span>
+      <span class="tag tag-yellow">Vertex AI (Gemini)</span>
+      <span class="tag" style="background:rgba(192,132,252,0.12); color:#c084fc; border:1px solid rgba(192,132,252,0.3);">MCP (Model Context Protocol)</span>
+      <span class="tag" style="background:rgba(192,132,252,0.12); color:#c084fc; border:1px solid rgba(192,132,252,0.3);">pnpm Monorepo · Turborepo</span>
+      <span class="tag" style="background:rgba(248,113,113,0.12); color:#f87171; border:1px solid rgba(248,113,113,0.3);">ROS2 · mcap / rosbag</span>
+      <span class="tag" style="background:rgba(248,113,113,0.12); color:#f87171; border:1px solid rgba(248,113,113,0.3);">Docker · AWS EC2</span>
+    </div>
+  </div>
+
+</section>
+
+<script>
+  // Intersection Observer for fade-in
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+      }
+    });
+  }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+
+  document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>
