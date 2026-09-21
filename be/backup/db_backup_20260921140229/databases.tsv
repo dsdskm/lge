@@ -1,0 +1,7 @@
+container	postgres_user	postgres_database	backup_file	backup_format
+ai-chat-service-pg	root	ai_chat_service_db	ai-chat-service-pg.sql.gz	plain_sql_gzip
+event-receiver-pg	root	event_receiver_db	event-receiver-pg.sql.gz	plain_sql_gzip
+action-runner-pg	root	action_runner_db	action-runner-pg.sql.gz	plain_sql_gzip
+report-manager-pg	root	report_manager_db	report-manager-pg.sql.gz	plain_sql_gzip
+event-analyzer-pg	root	event_analyzer_db	event-analyzer-pg.sql.gz	plain_sql_gzip
+config-manager-pg	root	config_manager_db	config-manager-pg.sql.gz	plain_sql_gzip
