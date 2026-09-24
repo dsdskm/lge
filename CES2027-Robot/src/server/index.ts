@@ -33,8 +33,36 @@ const app = new App({
   skipAuth: true,
 });
 
-app.tab("home", path.join(__dirname, "./client"));
+const isDev = process.env.NODE_ENV !== "production";
+const repoRoot = path.join(__dirname, "../..");
+
+async function mountTab() {
+  if (isDev) {
+    // Serve the tab straight from source via Vite's dev middleware, so `pnpm dev` needs no build step.
+    const { createServer } = await import("vite");
+    const vite = await createServer({
+      root: repoRoot,
+      server: { middlewareMode: true },
+      appType: "custom",
+    });
+    const expressApp = (adapter as any).express;
+    expressApp.use(vite.middlewares);
+    expressApp.use("/tabs/home", async (req: any, res: any, next: any) => {
+      try {
+        const template = fs.readFileSync(path.join(repoRoot, "index.html"), "utf-8");
+        const html = await vite.transformIndexHtml(req.originalUrl, template);
+        res.status(200).set({ "Content-Type": "text/html" }).end(html);
+      } catch (e) {
+        vite.ssrFixStacktrace(e as Error);
+        next(e);
+      }
+    });
+  } else {
+    app.tab("home", path.join(__dirname, "../client"));
+  }
+}
 
 (async () => {
+  await mountTab();
   await app.start(process.env.PORT || 3978);
 })();

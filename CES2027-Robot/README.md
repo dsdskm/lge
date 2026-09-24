@@ -37,11 +37,10 @@ The following files can be customized and demonstrate an example implementation 
 | File                             | Contents                                                                                                        |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `index.html`                     | HTML file.                                                                                                      |
-| `src/Tab/App.css`                | CSS file for the app.                                                                                           |
-| `src/Tab/App.tsx`                | Tab source file. It calls `teamsjs` SDK to get the context of on which Microsoft 365 application your app is running.      |
-| `src/index.ts`                   | Starting the app using [Microsoft Teams SDK](https://aka.ms/teams-ai-library-v2).                                                                     |
-| `vite.config.js`                 | Configuration for Vite build tool.                                                                              |  
-| `nodemon.json`                   | Configuration for Nodemon to watch and restart the server.                                                      |
+| `src/app/App.css`                | CSS file for the app.                                                                                           |
+| `src/app/App.tsx`                | Tab source file. It calls `teamsjs` SDK to get the context of on which Microsoft 365 application your app is running.      |
+| `src/server/index.ts`            | Starting the app using [Microsoft Teams SDK](https://aka.ms/teams-ai-library-v2). Runs Vite in middleware mode during `pnpm dev` so the tab is served without a build step.                                                                     |
+| `vite.config.js`                 | Configuration for Vite build tool.                                                                              |
 
 The following are Microsoft 365 Agents Toolkit specific project files. You can [visit a complete guide on Github](https://github.com/OfficeDev/TeamsFx/wiki/Teams-Toolkit-Visual-Studio-Code-v5-Guide#overview) to understand how Microsoft 365 Agents Toolkit works.
 

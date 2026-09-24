@@ -11,6 +11,6 @@ module.exports = {
   clean: true,
   outDir: "dist",
   format: ["cjs", "esm"],
-  entry: ["src/index.ts"],
+  entry: { "server/index": "src/server/index.ts" },
   tsconfig: "tsconfig.node.json",
 };

@@ -2,8 +2,9 @@
     "name": "ces2027robot",
     "version": "0.1.0",
     "private": true,
-    "main": "dist/index",
-    "types": "dist/index",
+    "main": "dist/server/index",
+    "types": "dist/server/index",
+    "packageManager": "pnpm@10.28.2",
     "files": [
         "dist",
         "README.md"
@@ -28,17 +29,18 @@
         "@vitejs/plugin-react": "^4.3.4",
         "dotenv": "^16.4.5",
         "env-cmd": "^11.0.0",
-        "nodemon": "^3.1.4",
         "rimraf": "^6.0.1",
         "tsup": "^8.4.0",
+        "tsx": "^4.19.2",
         "typescript": "^5.4.5",
         "vite": "^6.2.0"
     },
     "scripts": {
-        "dev:teamsfx": "env-cmd --silent -f .localConfigs npm run dev",
+        "dev:teamsfx": "env-cmd --silent -f .localConfigs pnpm dev",
         "clean": "rimraf ./dist",
-        "dev": "npm run build:frontend && nodemon",
-        "build": "tsup && npm run build:frontend",
-        "build:frontend": "vite build --outDir dist/client"
+        "dev": "tsx watch src/server/index.ts",
+        "start": "node -r dotenv/config .",
+        "build": "tsup && pnpm build:frontend",
+        "build:frontend": "vite build --outDir dist/client --base=/tabs/home"
     }
 }

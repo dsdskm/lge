@@ -55,11 +55,10 @@ deploy:
       sslCertFile: SSL_CRT_FILE
       sslKeyFile: SSL_KEY_FILE
 
-  # Run npm command
-  - uses: cli/runNpmCommand
-    name: install dependencies
+  # Install dependencies
+  - uses: script
     with:
-      args: install
+      run: pnpm install
 
   # Generate runtime environment variables
   - uses: file/createOrUpdateEnvironmentFile
