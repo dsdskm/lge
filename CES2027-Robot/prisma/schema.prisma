@@ -1,0 +1,114 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Folder {
+  id        String   @id
+  name      String
+  parentId  String?  @map("parent_id")
+  path      String   @unique
+  parent    Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Folder[] @relation("FolderTree")
+  files     File[]
+  chunks    DocumentChunk[]
+  @@map("folders")
+}
+
+model File {
+  id          String   @id
+  folderId    String   @map("folder_id")
+  name        String
+  type        String
+  updated     String
+  owner       String
+  active      Boolean  @default(true)
+  sizeBytes   BigInt   @default(0) @map("size_bytes")
+  storagePath String?  @map("storage_path")
+  folder      Folder   @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  chunks      DocumentChunk[]
+  @@unique([folderId, name])
+  @@map("files")
+}
+
+model DocumentChunk {
+  id         String   @id
+  fileId     String   @map("file_id")
+  folderId   String   @map("folder_id")
+  chunkIndex Int      @map("chunk_index")
+  content    String
+  metadata   Json     @default("{}")
+  embedding  Unsupported("vector")
+  createdAt  DateTime @default(now()) @map("created_at")
+  file       File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  folder     Folder   @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  @@index([fileId])
+  @@index([folderId])
+  @@map("document_chunks")
+}
+
+model StorageUsage {
+  id         Int    @id
+  usedBytes  BigInt @default(0) @map("used_bytes")
+  totalBytes BigInt @default(0) @map("total_bytes")
+  @@map("storage_usage")
+}
+
+model SystemPrompt {
+  key       String   @id
+  content   String
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@map("system_prompts")
+}
+
+model Account {
+  id          String   @id
+  displayName String   @map("display_name")
+  email       String   @unique
+  role        String   @default("viewer")
+  status      String   @default("active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  @@map("accounts")
+}
+
+model ChatHistory {
+  id        String   @id
+  at        DateTime @default(now())
+  question  String
+  answer    String?
+  error     String?
+  sources   Json     @default("[]")
+  steps     Json     @default("[]")
+  @@index([at])
+  @@map("chat_history")
+}
+
+model VideoJob {
+  id        String   @id
+  fileId    String   @unique @map("file_id")
+  folderId  String   @map("folder_id")
+  status    String   @default("queued")
+  progress  String   @default("처리 대기 중")
+  error     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@index([folderId, createdAt])
+  @@map("video_jobs")
+}
+
+model DocumentJob {
+  id        String   @id
+  fileId    String   @unique @map("file_id")
+  folderId  String   @map("folder_id")
+  status    String   @default("queued")
+  progress  String   @default("처리 대기 중")
+  error     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@index([folderId, createdAt])
+  @@map("document_jobs")
+}

@@ -19,7 +19,7 @@ provision:
     with:
       run:
         echo "::set-teamsfx-env TAB_DOMAIN=localhost";
-        echo "::set-teamsfx-env TAB_ENDPOINT=https://localhost:3978";
+        echo "::set-teamsfx-env TAB_ENDPOINT=https://localhost:53000";
 
   # Build app package with latest env value
   - uses: teamsApp/zipAppPackage

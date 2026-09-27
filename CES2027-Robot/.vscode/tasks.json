@@ -27,6 +27,7 @@
                     "portOccupancy" // Validate available ports to ensure those debug ones are not occupied.
                 ],
                 "portOccupancy": [
+                    53000, // tab app port,
                     3978, // app port,
                     9239 // app inspector port for Node.js debugger
                 ]
@@ -70,7 +71,7 @@
                 "background": {
                     "activeOnStart": true,
                     "beginsPattern": ".*",
-                    "endsPattern": "listening on port 3978|[nodemon] app crashed"
+                    "endsPattern": "Local:.*53000|listening on port 3978|[nodemon] app crashed"
                 }
             }
         },
