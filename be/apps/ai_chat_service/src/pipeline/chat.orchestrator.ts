@@ -540,7 +540,7 @@ export class ChatOrchestrator {
     const fallbackIntentConfig = await this.resolveFallbackIntentConfig(screen.key)
 
     let pipelineIntent: ChatIntent = pipelineIntentResult.intent
-    let infoRagCollections = this.uniqueCollections([COMMON_COLLECTION, screen.ragCollection, screen.appKey])
+    let infoRagCollections = this.uniqueCollections([screen.ragCollection, screen.appKey, COMMON_COLLECTION])
     const actionRagCollections = this.uniqueCollections([screen.ragCollection, screen.appKey, COMMON_COLLECTION])
     this.stageLog('2-4단계:의도분류_초안', reqId, `status=drafted reason=초기 의도=${pipelineIntent}`)
     // 의도 분석 실패(저신뢰도) 시 common action 또는 common RAG로 우선 복구한다.
