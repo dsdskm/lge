@@ -303,6 +303,50 @@
   .final-unit { font-size: 1.2rem; color: var(--muted); font-weight: 400; }
   .final-desc { font-size: 0.9rem; color: var(--muted); margin-top: 0.4rem; }
 
+  .demo-shot-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.2rem; }
+  .demo-shot-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 1rem;
+    display: flex; flex-direction: column;
+  }
+  .demo-shot-title {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.8rem;
+    font-size: 0.88rem; font-weight: 700; margin-bottom: 0.8rem;
+  }
+  .demo-shot-card img {
+    width: 100%; height: 260px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08);
+    background: var(--navy2); display: block; object-fit: contain; cursor: zoom-in;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .demo-shot-card img:hover { border-color: rgba(0,212,170,0.45); transform: translateY(-1px); }
+  .demo-shot-desc { font-size: 0.82rem; color: var(--muted); margin-top: 0.8rem; line-height: 1.5; }
+  .image-modal {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(2,6,23,0.86); backdrop-filter: blur(8px);
+    display: none; align-items: center; justify-content: center;
+    padding: 4rem 2rem 2rem;
+  }
+  .image-modal.open { display: flex; }
+  .image-modal img {
+    max-width: min(96vw, 1400px); max-height: 88vh;
+    border-radius: 12px; border: 1px solid rgba(255,255,255,0.16);
+    background: var(--navy2); object-fit: contain;
+  }
+  .image-modal-close {
+    position: absolute; top: 1.2rem; right: 1.4rem;
+    width: 40px; height: 40px; border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.22); background: rgba(15,23,42,0.9);
+    color: var(--text); font-size: 1.4rem; line-height: 1; cursor: pointer;
+  }
+  .image-modal-close:hover { color: var(--teal); border-color: rgba(0,212,170,0.45); }
+  .focus-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+  .focus-card {
+    background: rgba(0,212,170,0.06); border: 1px solid rgba(0,212,170,0.2);
+    border-radius: 12px; padding: 1.2rem;
+  }
+  .focus-title { font-size: 1rem; font-weight: 800; color: var(--teal); margin-bottom: 0.35rem; }
+  .focus-desc { font-size: 0.82rem; color: var(--muted); }
+
   /* ── ANIMATIONS ── */
   .fade-in {
     opacity: 0; transform: translateY(24px);
@@ -454,6 +498,7 @@
     <a href="#apicost">AI API 비용</a>
     <a href="#timeline">추진 일정</a>
     <a href="#effect">기대 효과</a>
+    <a href="#screens">주요 화면</a>
   </div>
 </nav>
 
@@ -610,10 +655,6 @@
         <div class="flow-node" style="grid-column:7; grid-row:1; text-align:center; width:155px; background:rgba(135,124,156,0.16); border-color:rgba(135,124,156,0.65);">
           <div class="flow-node-title">⚙️ config_manager</div>
           <div class="flow-node-sub">LLM 옵션 · 분석 파라미터</div>
-          <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
-            <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:60%; height:100%; background:#877c9c;"></div></div>
-            <span style="font-size:0.6rem; font-weight:800; color:#877c9c;">60%</span>
-          </div>
         </div>
 
         <!-- ↕ · col7, row2 -->
@@ -640,31 +681,21 @@
           <div class="flow-node" style="width:138px; text-align:center; background:rgba(135,124,156,0.16); border-color:rgba(135,124,156,0.65);">
             <div class="flow-node-title">☁️ 클라우드 관제</div>
             <div class="flow-node-sub">AWS · log 수신</div>
-            <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
-              <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:60%; height:100%; background:#877c9c;"></div></div>
-              <span style="font-size:0.6rem; font-weight:800; color:#877c9c;">60%</span>
-            </div>
           </div>
           <!-- 3 Backend (compact) -->
           <div class="flow-node" style="min-width:0; width:138px; padding:0.4rem 0.6rem; text-align:center; background:rgba(240,116,33,0.16); border-color:rgba(240,116,33,0.65);">
             <div style="display:flex; align-items:center; gap:5px;">
               <span class="flow-node-title" style="font-size:0.68rem; white-space:nowrap;">🗂️ CMS</span>
-              <div style="flex:1; height:4px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:5%; height:100%; background:#f07421;"></div></div>
-              <span style="font-size:0.56rem; font-weight:800; color:#f07421;">5%</span>
             </div>
           </div>
           <div class="flow-node" style="min-width:0; width:138px; padding:0.4rem 0.6rem; text-align:center; background:rgba(240,116,33,0.16); border-color:rgba(240,116,33,0.65);">
             <div style="display:flex; align-items:center; gap:5px;">
               <span class="flow-node-title" style="font-size:0.68rem; white-space:nowrap;">🚀 SOTA</span>
-              <div style="flex:1; height:4px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:5%; height:100%; background:#f07421;"></div></div>
-              <span style="font-size:0.56rem; font-weight:800; color:#f07421;">5%</span>
             </div>
           </div>
           <div class="flow-node" style="min-width:0; width:138px; padding:0.4rem 0.6rem; text-align:center; background:rgba(240,116,33,0.16); border-color:rgba(240,116,33,0.65);">
             <div style="display:flex; align-items:center; gap:5px;">
               <span class="flow-node-title" style="font-size:0.68rem; white-space:nowrap;">📋 TMS</span>
-              <div style="flex:1; height:4px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:5%; height:100%; background:#f07421;"></div></div>
-              <span style="font-size:0.56rem; font-weight:800; color:#f07421;">5%</span>
             </div>
           </div>
         </div>
@@ -680,10 +711,6 @@
         <div class="flow-node" style="grid-column:5; grid-row:3; width:140px; background:rgba(135,124,156,0.16); border-color:rgba(135,124,156,0.65);">
           <div class="flow-node-title">📥 event_receiver</div>
           <div class="flow-node-sub">로그 모니터링<br/>에러 탐지</div>
-          <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
-            <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:60%; height:100%; background:#877c9c;"></div></div>
-            <span style="font-size:0.6rem; font-weight:800; color:#877c9c;">60%</span>
-          </div>
         </div>
 
         <!-- → col6, row3 -->
@@ -693,10 +720,6 @@
         <div class="flow-node" style="grid-column:7; grid-row:3; width:155px; background:rgba(135,124,156,0.16); border-color:rgba(135,124,156,0.65);">
           <div class="flow-node-title">🔍 event_analyzer</div>
           <div class="flow-node-sub">이슈 기능 분류<br/>이슈 분석 · 솔루션 제안</div>
-          <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
-            <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:60%; height:100%; background:#877c9c;"></div></div>
-            <span style="font-size:0.6rem; font-weight:800; color:#877c9c;">60%</span>
-          </div>
         </div>
 
         <!-- → col8, row3 (analyzer → action) -->
@@ -706,10 +729,6 @@
         <div class="flow-node" style="grid-column:9; grid-row:3; width:132px; background:rgba(154,122,134,0.16); border-color:rgba(154,122,134,0.65);">
           <div class="flow-node-title">⚡ action_runner</div>
           <div class="flow-node-sub">후속 액션 실행</div>
-          <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
-            <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:50%; height:100%; background:#9a7a86;"></div></div>
-            <span style="font-size:0.6rem; font-weight:800; color:#9a7a86;">50%</span>
-          </div>
         </div>
 
         <!-- → col10, row3 -->
@@ -719,10 +738,6 @@
         <div class="flow-node" style="grid-column:11; grid-row:3; width:135px; background:rgba(97,127,201,0.16); border-color:rgba(97,127,201,0.65);">
           <div class="flow-node-title">📊 report_mgr</div>
           <div class="flow-node-sub">HTML 리포트 생성<br/>이메일 자동 발송</div>
-          <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
-            <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:70%; height:100%; background:#617fc9;"></div></div>
-            <span style="font-size:0.6rem; font-weight:800; color:#617fc9;">70%</span>
-          </div>
         </div>
 
         <!-- → col12, row3 -->
@@ -744,10 +759,6 @@
         <div class="flow-node" style="grid-column:7; grid-row:5; align-self:start; width:155px; background:rgba(135,124,156,0.16); border-color:rgba(135,124,156,0.65);">
           <div class="flow-node-title">🧠 llm_gateway</div>
           <div class="flow-node-sub">AI API 라우팅<br/>(Azure / Gemini)</div>
-          <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
-            <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:60%; height:100%; background:#877c9c;"></div></div>
-            <span style="font-size:0.6rem; font-weight:800; color:#877c9c;">60%</span>
-          </div>
         </div>
 
         <!-- 참조 arrow · col8, row5 (llm → refs) -->
@@ -761,53 +772,19 @@
           <div class="flow-node" style="text-align:center; background:rgba(220,117,56,0.16); border-color:rgba(220,117,56,0.65);">
             <div class="flow-node-title" style="font-size:0.74rem;">🔎 유사 이슈 검색</div>
             <div class="flow-node-sub">llm 사용 효율화</div>
-            <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
-              <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:15%; height:100%; background:#dc7538;"></div></div>
-              <span style="font-size:0.6rem; font-weight:800; color:#dc7538;">15%</span>
-            </div>
           </div>
           <div class="flow-node" style="text-align:center; background:rgba(220,117,56,0.16); border-color:rgba(220,117,56,0.65);">
             <div class="flow-node-title" style="font-size:0.74rem;">📋 기능별 data &amp; 지침</div>
             <div class="flow-node-sub">기능별 custom 프롬프트</div>
-            <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
-              <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:15%; height:100%; background:#dc7538;"></div></div>
-              <span style="font-size:0.6rem; font-weight:800; color:#dc7538;">15%</span>
-            </div>
           </div>
           <div class="flow-node" style="text-align:center; background:rgba(220,117,56,0.16); border-color:rgba(220,117,56,0.65);">
             <div class="flow-node-title" style="font-size:0.74rem;">📁 source code</div>
             <div class="flow-node-sub">git repository</div>
-            <div style="margin-top:7px; display:flex; align-items:center; gap:5px;">
-              <div style="flex:1; height:5px; background:rgba(0,0,0,0.28); border-radius:3px; overflow:hidden;"><div style="width:15%; height:100%; background:#dc7538;"></div></div>
-              <span style="font-size:0.6rem; font-weight:800; color:#dc7538;">15%</span>
-            </div>
           </div>
         </div>
 
       </div>
 
-    </div>
-
-    <!-- ── 진척률(완성도) 범례 ── -->
-    <div style="margin-top:1.2rem; background:var(--navy3); border:1px solid var(--border); border-radius:12px; padding:1rem 1.4rem;">
-      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.8rem;">
-        <div style="font-size:0.78rem; font-weight:700; color:var(--text); letter-spacing:0.03em;">📊 모듈 개발 진척률 (완성도)</div>
-      </div>
-      <div style="margin-top:0.8rem; display:flex; align-items:center; gap:0.8rem;">
-        <span style="font-size:0.7rem; font-weight:700; color:#f97316;">0%</span>
-        <div style="position:relative; flex:1; height:14px; border-radius:7px; background:linear-gradient(90deg, #f97316 0%, #9a7a86 50%, #3b82f6 100%);">
-          <div style="position:absolute; left:15%; top:-3px; bottom:-3px; width:1px; background:rgba(255,255,255,0.45);"></div>
-          <div style="position:absolute; left:65%; top:-3px; bottom:-3px; width:1px; background:rgba(255,255,255,0.45);"></div>
-          <div style="position:absolute; left:85%; top:-3px; bottom:-3px; width:1px; background:rgba(255,255,255,0.45);"></div>
-        </div>
-        <span style="font-size:0.7rem; font-weight:700; color:#3b82f6;">100%</span>
-      </div>
-      <div style="margin-top:0.35rem; display:flex; padding:0 32px; font-size:0.64rem; font-weight:600;">
-        <div style="flex:0 0 15%; text-align:center; color:#dc7538;">검토중<br/><span style="font-size:0.56rem; font-weight:400; color:var(--muted);">0~15%</span></div>
-        <div style="flex:0 0 50%; text-align:center; color:#9a7a86;">구현중<br/><span style="font-size:0.56rem; font-weight:400; color:var(--muted);">15~65%</span></div>
-        <div style="flex:0 0 20%; text-align:center; color:#617fc9;">연동 테스트중<br/><span style="font-size:0.56rem; font-weight:400; color:var(--muted);">65~85%</span></div>
-        <div style="flex:0 0 15%; text-align:center; color:#3b82f6;">종합 테스트중<br/><span style="font-size:0.56rem; font-weight:400; color:var(--muted);">85~100%</span></div>
-      </div>
     </div>
 
   </div>
@@ -1609,6 +1586,34 @@
     </div>
   </div>
 
+  <!-- POC 대응 및 고도화 항목 -->
+  <div class="card fade-in delay-2" style="margin-top:2rem; border-color:rgba(59,130,246,0.28); background:rgba(59,130,246,0.04);">
+    <div class="layer-label" style="margin-bottom:1rem;">주요 POC 대응 건</div>
+    <div style="display:flex; flex-wrap:wrap; gap:0.7rem;">
+      <span class="tag tag-blue">국민연금 이사장 대응</span>
+      <span class="tag tag-blue">NVIDIA 메디슨황 대응</span>
+      <span class="tag tag-blue">부산스마트시티 대응</span>
+    </div>
+  </div>
+
+  <div style="margin-top:2rem;" class="fade-in delay-3">
+    <div class="layer-label" style="margin-bottom:1rem;">고도화 필요 항목</div>
+    <div class="focus-list">
+      <div class="focus-card">
+        <div class="focus-title">AI Log 분석 로직 세분화</div>
+        <div class="focus-desc">장애 유형·기능 단위 분석 기준을 세분화해 원인 추정 정확도 향상</div>
+      </div>
+      <div class="focus-card">
+        <div class="focus-title">RAG 연동 세분화</div>
+        <div class="focus-desc">이슈 이력, 기능별 지침, 소스 코드 참조 범위를 분리해 검색 품질 개선</div>
+      </div>
+      <div class="focus-card">
+        <div class="focus-title">사용성 개선</div>
+        <div class="focus-desc">운영자 관점의 조회·설정·조치 흐름을 단순화해 현장 적용성 강화</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Tech stack footer -->
   <div style="margin-top:3rem; padding:1.5rem; background:var(--card); border-radius:14px; border:1px solid var(--border);" class="fade-in delay-2">
     <div class="layer-label" style="margin-bottom:1rem;">기술 스택</div>
@@ -1628,6 +1633,53 @@
 
 </section>
 
+<div class="divider"></div>
+
+<!-- ── 8. MAIN SCREENS ── -->
+<section id="screens">
+  <div class="section-label">주요 화면</div>
+  <h2 class="fade-in">주요 화면</h2>
+  <div class="demo-shot-grid gap-lg fade-in delay-1">
+    <div class="demo-shot-card">
+      <div class="demo-shot-title">
+        <span>AI Log 분석</span>
+        <span class="tag tag-teal">Log Analysis</span>
+      </div>
+      <img src="ai_analysis.png" alt="AI Log 분석 시연 화면" />
+      <div class="demo-shot-desc">로봇의 로그를 LLM + 프롬프트 + RAG 조합으로 분석 및 솔루션 생성</div>
+    </div>
+    <div class="demo-shot-card">
+      <div class="demo-shot-title">
+        <span>AI Assistant</span>
+        <span class="tag tag-blue">Chat</span>
+      </div>
+      <img src="ai_assistant.png" alt="AI Assistant 시연 화면" />
+      <div class="demo-shot-desc">자연어 질의에 대해 챗 응답 생성 및 액션 수행</div>
+    </div>
+    <div class="demo-shot-card">
+      <div class="demo-shot-title">
+        <span>AI Assistant Task Flow</span>
+        <span class="tag tag-blue">Task Flow</span>
+      </div>
+      <img src="ai_assistant_taskflow.png" alt="AI Assistant Task Flow 화면" />
+      <div class="demo-shot-desc">자연어 기반 Taskflow 생성</div>
+    </div>
+    <div class="demo-shot-card">
+      <div class="demo-shot-title">
+        <span>Setting · Prompt/RAG/Rule</span>
+        <span class="tag tag-yellow">Prompt</span>
+      </div>
+      <img src="setting_prompt.png" alt="Prompt 설정 화면" />
+      <div class="demo-shot-desc">Prompt 및 RAG, Rule 설정을 통하여 chat 응답 생성</div>
+    </div>
+  </div>
+</section>
+
+<div class="image-modal" id="imageModal" aria-hidden="true">
+  <button class="image-modal-close" type="button" aria-label="확대 이미지 닫기">×</button>
+  <img src="" alt="" />
+</div>
+
 <script>
   // Intersection Observer for fade-in
   const observer = new IntersectionObserver((entries) => {
@@ -1639,6 +1691,34 @@
   }, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
 
   document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+  const imageModal = document.getElementById('imageModal');
+  const modalImage = imageModal.querySelector('img');
+  const modalClose = imageModal.querySelector('.image-modal-close');
+
+  document.querySelectorAll('.demo-shot-card img').forEach(img => {
+    img.addEventListener('click', () => {
+      modalImage.src = img.src;
+      modalImage.alt = img.alt;
+      imageModal.classList.add('open');
+      imageModal.setAttribute('aria-hidden', 'false');
+    });
+  });
+
+  function closeImageModal() {
+    imageModal.classList.remove('open');
+    imageModal.setAttribute('aria-hidden', 'true');
+    modalImage.src = '';
+    modalImage.alt = '';
+  }
+
+  modalClose.addEventListener('click', closeImageModal);
+  imageModal.addEventListener('click', e => {
+    if (e.target === imageModal) closeImageModal();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && imageModal.classList.contains('open')) closeImageModal();
+  });
 </script>
 </body>
 </html>
