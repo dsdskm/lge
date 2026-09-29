@@ -73,6 +73,25 @@ export function createCanvasRenderer({
   let traveledPoints = []
   let lastSeenSeekEpoch = -1
 
+  // ✅ "남은/계획 경로(회색)"용 routePts 이음매(seam) 캐시. routePts는 배경 스캔이 끝나면 참조가
+  //    고정되므로, 참조가 바뀔 때만 O(n) 재계산하고 그 사이엔 캐시를 그대로 반환한다(매 프레임 스캔 방지).
+  let _seamRouteCacheSrc = null
+  let _seamRouteCacheOut = null
+  function getSeamFlaggedRoutePts(routePts) {
+    if (_seamRouteCacheSrc === routePts) return _seamRouteCacheOut
+    const MAX_PLAUSIBLE_SPEED_MPS = 3.0
+    const out = routePts.map((p, i) => {
+      if (i === 0) return p
+      const a = routePts[i - 1]
+      const dt = (p.tSec ?? 0) - (a.tSec ?? 0)
+      const dist = Math.hypot(p.x - a.x, p.y - a.y)
+      return dt >= 0 && dist > Math.max(0.5, dt * MAX_PLAUSIBLE_SPEED_MPS) ? { ...p, seam: true } : p
+    })
+    _seamRouteCacheSrc = routePts
+    _seamRouteCacheOut = out
+    return out
+  }
+
   // ─────────────────────────────────────────────
   // 렌더 설정 토글
   // ─────────────────────────────────────────────
@@ -585,7 +604,9 @@ export function createCanvasRenderer({
 
       const gapTooBig = Number.isFinite(lastT) && t - lastT > maxGapSec
       const { sx, sy } = fastWS(wx, wy)
-      if (!moved || breakNext || gapTooBig) {
+      // p.seam: precise ↔ hold-last/sparse 전환 이음매(render2d.js 위쪽 traveledPoints push 참고).
+      //   시간 간격은 작아도 실제 위치가 멀리 떨어져 있을 수 있어 별도로 끊는다.
+      if (!moved || breakNext || gapTooBig || p.seam) {
         ctx.moveTo(sx, sy)
         moved = true
         breakNext = false
@@ -1341,12 +1362,27 @@ export function createCanvasRenderer({
     if (!poseNow) {
       // ✅ pts가 tSecCutoff를 감싸지 못하면(갱신 대기 중) traveledPoints의 마지막 점을 유지한다.
       //    이렇게 하면 잔상 없이 이전 위치를 유지하고, pts가 갱신되면 자연스럽게 새 위치로 이동한다.
+      //    ⚠️ 단, 이 "유지"는 traveledPoints(이번 재생에서 실제로 지나온 이력)에 의존하므로
+      //    "같은 tSecCutoff라도 어떻게 거기까지 왔는지(죽 재생 vs seek 직후)"에 따라 값이 달라질 수
+      //    있다 — 원래 이 코드가 지키던 "같은 시각=항상 같은 값" 결정성 원칙과 충돌한다(2026-09-16
+      //    실측: seek 후 재생 시 같은 시각에 마커 위치가 다르게 나옴). STALE_HOLD_SEC을 짧게(0.25초)
+      //    잡아 절충한다 — 짧은 프레임 단위 잔상은 그대로 안 보이게 흡수하면서, 비결정적 구간을
+      //    사람이 체감하기 어려운 크기로 줄인다(완전한 결정성을 원하면 이 폴백 자체를 없애고
+      //    sparse(routePts)만 써야 한다 — 그러면 잔상은 다시 생길 수 있음).
+      const STALE_HOLD_SEC = 0.25
       const lastTraveled = traveledPoints.length ? traveledPoints[traveledPoints.length - 1] : null
-      if (lastTraveled) {
+      if (lastTraveled && tSecCutoff - lastTraveled.tSec <= STALE_HOLD_SEC) {
         poseNow = { x: lastTraveled.x, y: lastTraveled.y, yaw: lastTraveled.yaw ?? 0, tSec: lastTraveled.tSec }
       } else if (routePts.length >= 2) {
-        // ✅ traveledPoints가 비어 있으면(seek 직후) sparse 폴백으로 마커를 표시한다.
+        // ✅ traveledPoints가 비어 있거나(seek 직후) 너무 오래된 값이면 sparse 폴백으로 마커를 표시한다.
         //    (마커는 "같은 시각에 항상 같은 값"이 필요하므로 routePts 기반이 안정적)
+        //
+        // ⚠️ [알려진 한계, 2026-09-16] 고배속(예: 10×) 재생에서는 pose 미리읽기 창(useLogReplayData.js의
+        //   requestPoseWindow HALF)이 배속과 무관하게 고정이라, 재생 헤드가 실시간을 훨씬 앞질러서
+        //   이 sparse 폴백 분기를 훨씬 자주·훨씬 오래 타게 된다. 그 결과 고배속에서는 지나온/남은
+        //   경로가 자주 끊기고 마커가 sparse 정밀도로만 움직이는 게 눈에 띌 수 있다. 배속에 비례해
+        //   미리읽기 창을 늘리는 개선은 검토했으나(위험도 대비 이득 불확실) 지금은 보류하고, "고배속=
+        //   정밀도 저하"를 감내하기로 결정했다. 배속별 동적 확대가 필요해지면 이 주석부터 볼 것.
         poseNow = getPoseAtTime(routePts, tSecCutoff)
       }
     }
@@ -1355,10 +1391,31 @@ export function createCanvasRenderer({
       // ⚠️ 정밀 데이터가 아직 없으면(seek 직후 fetch 대기 중) 초록 시작점을 심지 않는다.
       //    sparse 폴백 값으로 seed하면 그 좌표가 부정확해, 잠시 후 정밀 데이터가 도착했을 때
       //    첫 두 점 사이에 어색한 꺾임이 생긴다. 정밀 데이터가 올 때까지 그냥 기다린다(마커는 계속 보임).
-      if (hasPreciseNow) {
-        const lastT = traveledPoints.length ? traveledPoints[traveledPoints.length - 1].tSec : -Infinity
-        if (traveledPoints.length === 0 || tSecCutoff - lastT > 0.001) {
-          traveledPoints.push({ tSec: tSecCutoff, x: poseNow.x, y: poseNow.y, yaw: poseNow.yaw })
+      //    ⚠️ 단, 시작점을 심은 "이후"에는 hasPreciseNow로만 이어그리면 안 된다 — precise 브래킷이
+      //    자주 실패하는 구간(위 STALE_HOLD_SEC 폴백)에서 이어그리기가 멈췄다가, 한참 뒤 precise가
+      //    다시 성립하는 순간 "멀리 떨어진 옛 점 → 방금 점"을 직선으로 이어버려 엉뚱한 구간에 갑자기
+      //    선이 생기는 것처럼 보였다(2026-09-15 실측). 시작점 이후엔 sparse로 이어가는 점도 계속
+      //    쌓아서, precise가 돌아왔을 때 자연스럽게 이어지게 한다.
+      const alreadySeeded = traveledPoints.length > 0
+      if (hasPreciseNow || alreadySeeded) {
+        const lastPoint = alreadySeeded ? traveledPoints[traveledPoints.length - 1] : null
+        const lastT = lastPoint ? lastPoint.tSec : -Infinity
+        if (!alreadySeeded || tSecCutoff - lastT > 0.001) {
+          // ⚠️ [2026-09-16 수정] 예전엔 "카테고리(precise↔approx)가 바뀌면 무조건 seam"으로 끊었는데,
+          //   hold-last/sparse-fallback은 원래 실제 위치에 가깝게 근사하려는 값이라 카테고리가 바뀌어도
+          //   거리가 거의 안 벌어지는 경우가 대부분이다. 그런데도 무조건 끊어버리니, 3배속처럼 네트워크가
+          //   자주 못 따라잡아 precise/approx가 수시로 뒤바뀌는 구간에서 "끊겼다 이어졌다"가 반복되고,
+          //   그 결과가 비동기 타이밍에 따라 재생마다 달라 보였다(같은 구간을 다시 재생하면 끊김 여부가
+          //   바뀜 — 실측 확인됨). 카테고리와 무관하게 "실제로 그 시간에 이동 못 할 거리"일 때만 끊는다 —
+          //   relocalization처럼 진짜 먼 점프는 여전히 잡히고, 근사값이 근처에서 오갈 때는 안 끊긴다.
+          let seam = false
+          if (lastPoint) {
+            const dist = Math.hypot(poseNow.x - lastPoint.x, poseNow.y - lastPoint.y)
+            const dt = tSecCutoff - lastPoint.tSec
+            const MAX_PLAUSIBLE_SPEED_MPS = 3.0
+            seam = dt >= 0 && dist > Math.max(0.5, dt * MAX_PLAUSIBLE_SPEED_MPS)
+          }
+          traveledPoints.push({ tSec: tSecCutoff, x: poseNow.x, y: poseNow.y, yaw: poseNow.yaw, seam })
         }
       }
       // 무한 성장 방지(파일이 매우 길 때)
@@ -1394,12 +1451,18 @@ export function createCanvasRenderer({
     //      같은 tSecCutoff는 항상 같은 접합점 → 항상 같은 회색선이 된다(재현 가능).
     const routeJoinPose = routePts.length >= 2 ? getPoseAtTime(routePts, tSecCutoff) : null
     if (showPlannedPath && routePts.length >= 2) {
-      const futurePts = routeJoinPose
-        ? [{ tSec: tSecCutoff, x: routeJoinPose.x, y: routeJoinPose.y }, ...routePts].sort(
+      // ⚠️ routePts는 파일 전체를 sparse 스캔한 것이라, 같은 relocalization 점프(위 traveledPoints
+      //   주석 참고)가 여기도 그대로 들어있다. 시간은 촘촘히 이어져 있어도 위치가 로봇이 물리적으로
+      //   이동 못 할 만큼 떨어져 있으면 seam으로 표시해 선을 끊는다(traveledPoints와 동일 기준).
+      //   ⚠️ 성능: routePts 자체는 seek/재생 중 바뀌지 않으므로(배경 스캔 완료 후 고정) 매 프레임
+      //   O(n) 재스캔하지 않고 참조가 바뀔 때만 다시 계산해 캐시한다(seamRouteCacheRef).
+      const seamedRoutePts = getSeamFlaggedRoutePts(routePts)
+      const rawFuturePts = routeJoinPose
+        ? [{ tSec: tSecCutoff, x: routeJoinPose.x, y: routeJoinPose.y }, ...seamedRoutePts].sort(
             (a, b) => (a.tSec ?? 0) - (b.tSec ?? 0)
           )
-        : routePts
-      drawPolylineLOD(ctx, futurePts, {
+        : seamedRoutePts
+      drawPolylineLOD(ctx, rawFuturePts, {
         mode: 'future',
         color: '#9CA3AF',
         tSecCutoff,

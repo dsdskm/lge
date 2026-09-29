@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Table } from '@repo/ui'
 import { deviceApis } from '@/apis'
 import { toYmdHmKST } from '@/utils/dateUtils'
 
 const TableAlarm = ({ robotDatas = [] }) => {
+  const { t } = useTranslation('robot')
   const [notifications, setNotifications] = useState([])
   const [isLoading, setIsLoading] = useState(false)
 
@@ -63,24 +65,24 @@ const TableAlarm = ({ robotDatas = [] }) => {
     return {
       columns: [
         {
-          name: '사이트',
+          name: t('site'),
           selector: (row) => row.siteName,
           sortable: true,
           width: '15%'
         },
         {
-          name: '로봇',
+          name: t('robotName'),
           selector: (row) => row.deviceName,
           sortable: true,
           width: '15%'
         },
         {
-          name: '에러 문구',
+          name: t('errorMessage'),
           selector: (row) => row.title,
           sortable: true
         },
         {
-          name: '발생 시간',
+          name: t('occurDate'),
           selector: (row) => row.occurredAt,
           sortable: true,
           width: '20%'

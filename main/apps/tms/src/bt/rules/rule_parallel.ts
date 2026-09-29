@@ -17,6 +17,8 @@ import {
   parallelSuccessCountProp
 } from '../nodes/btParallelNode'
 import { forceSuccessNodeType } from '../nodes/btForceSuccessNode'
+import { actionNodeType, alwaysRunningActionName, alwaysRunningActionTag } from '../nodes/btActionNode'
+import { sequenceNodeType, type BtSequenceNode } from '../nodes/btSequenceNode'
 
 export const rule_parallel: BtRule<typeof parallelNodeName> = {
   name: parallelNodeName,
@@ -37,20 +39,36 @@ export const rule_parallel: BtRule<typeof parallelNodeName> = {
     // main_nodes 가 비어 있으면(미설정) 모든 자식을 main 으로 간주(기존 동작 유지).
     const mainTargetSet = resolveMainTargetSet(node, orderedBranchEntries)
     const mainCount = mainTargetSet ? mainTargetSet.size : childCount
-    const nonMainCount = childCount - mainCount
 
     const branchChildren: BtAstNode[] = orderedBranchEntries.map((entry, idx) => {
       const astList = buildAstList(entry.targetId)
-      const child = wrapAstListAsSequenceIfNeeded(astList, `parallel_branch_${idx + 1}`)
-
-      // main 이 아닌 노드는 항상 SUCCESS 가 되도록 ForceSuccess 로 감싼다.
       const isMain = !mainTargetSet || mainTargetSet.has(entry.targetId)
-      return isMain ? child : { kind: forceSuccessNodeType, child }
+
+      if (isMain) {
+        return wrapAstListAsSequenceIfNeeded(astList, `parallel_branch_${idx + 1}`)
+      }
+
+      // main 이 아닌 분기는 <Sequence><ForceSuccess>...</ForceSuccess><Action ID="AlwaysRunning"/></Sequence> 로 감싼다.
+      // ForceSuccess 로 실패를 흡수하고, 뒤따르는 AlwaysRunning 이 분기를 RUNNING 으로 유지해
+      // success_count 판정에서 제외되도록 한다.
+      const child = wrapAstListAsSequenceIfNeeded(astList, `parallel_branch_${idx + 1}_body`)
+
+      return {
+        kind: sequenceNodeType,
+        name: `parallel_branch_${idx + 1}`,
+        children: [
+          { kind: forceSuccessNodeType, child },
+          {
+            kind: actionNodeType,
+            tag: alwaysRunningActionTag,
+            name: alwaysRunningActionName,
+            attrs: {}
+          }
+        ]
+      } satisfies BtSequenceNode
     })
 
-    // success_count 는 main 기준 입력값으로 검증한 뒤,
-    // BT 에는 non-main 개수를 더한 실제 임계값으로 반영한다.
-    const successCount = resolveSuccessCount(node, mainCount, nonMainCount)
+    const successCount = resolveSuccessCount(node, mainCount)
     const failureCount = resolveFailureCount(node, mainCount)
 
     const parallelNode: BtParallelNode = {
@@ -148,15 +166,10 @@ function sortBranchEntriesByCanvasPosition(entries: BranchEntry[], nodeById: Map
   return orderedIds.map((targetId) => entryByTargetId.get(targetId)).filter((entry): entry is BranchEntry => !!entry)
 }
 
-function resolveSuccessCount(node: any, childCount: number, nonMainCount: number): number {
+function resolveSuccessCount(node: any, childCount: number): number {
   const value = getNodeNumberPropertyValue(node, -1, parallelSuccessCountProp)
-  const validated = validateParallelThreshold(value, childCount, parallelSuccessCountProp, node)
 
-  if (validated === -1) {
-    return -1
-  }
-
-  return validated + nonMainCount
+  return validateParallelThreshold(value, childCount, parallelSuccessCountProp, node)
 }
 
 function resolveFailureCount(node: any, childCount: number): number {

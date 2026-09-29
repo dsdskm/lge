@@ -74,6 +74,6 @@
   "required": "필수 입력입니다.",
   "passwordConfirm": "비밀번호 확인",
   "passwordSetComplete": "비밀번호 설정 완료",
-  "passwordGuide": "영문 대/소, 숫자, 특수문자 중 3가지 조합으로 8자 이상 또는 2가지 조합으로 10자 이상 입력하세요.",
+  "passwordGuide": "비밀번호는 8자 이상이어야 하며, 영문, 숫자, 특수문자를 포함해야 합니다.",
   "passwordInvalidFormat": "비밀번호 규칙을 확인하세요"
 }

@@ -24,8 +24,10 @@
     "loadingGridMap": "Loading 2D map",
     "recovering": "Rechecking location",
     "ready": "Location ready",
+    "readyShort": "Ready",
     "failed": "Failed"
   },
+  "localizationStatus": "Localization",
   "pageTitle": "Map Scan",
   "disconnected": "Disconnected",
   "connecting": "Connecting...",

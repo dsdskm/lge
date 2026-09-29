@@ -3,6 +3,12 @@ import React, { useEffect, useRef, useMemo } from 'react'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 
+// ✅ uPlot 기본 범례 포맷(Intl.NumberFormat, 소수 3자리)은 -0.0000534 같은 값을
+//    "-0"으로 뭉개버려 실제로는 움직였는데 범례엔 0으로 보이는 문제가 있다. 소수 4자리로 고정해 보존한다.
+function formatLegendValue(v) {
+  return v == null || !Number.isFinite(v) ? '--' : v.toFixed(4)
+}
+
 export default React.memo(function SensorChart({
   sampleMode = false,
   data: mcapData,
@@ -87,9 +93,9 @@ export default React.memo(function SensorChart({
       plugins: [playheadPlugin(getPlayheadAbsSec)],
       series: [
         {}, // x-axis
-        { label: labels.x || 'X', stroke: colors.x || 'red' },
-        { label: labels.y || 'Y', stroke: colors.y || 'blue' },
-        { label: labels.z || 'Z', stroke: colors.z || 'green' }
+        { label: labels.x || 'X', stroke: colors.x || 'red', value: (u, v) => formatLegendValue(v) },
+        { label: labels.y || 'Y', stroke: colors.y || 'blue', value: (u, v) => formatLegendValue(v) },
+        { label: labels.z || 'Z', stroke: colors.z || 'green', value: (u, v) => formatLegendValue(v) }
       ]
     }
 

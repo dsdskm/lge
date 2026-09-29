@@ -45,12 +45,15 @@ function SetPassword() {
     reValidateMode: 'onChange'
   })
 
-  const handlePassError = (resultCode) => {
-    switch (resultCode) {
-      default:
-        setErrorMessage(t('unknownError'))
-        break
+  const handlePassError = (errorData) => {
+    const isPasswordInvalid = errorData?.validationErrors?.some((err) => err.field === 'userPassword')
+
+    if (isPasswordInvalid) {
+      setErrorMessage(t('passwordInvalid'))
+      return
     }
+
+    setErrorMessage(t('unknownError'))
   }
 
   useEffect(() => {
@@ -73,11 +76,11 @@ function SetPassword() {
           setTemporaryUserId(res?.temporaryUserId ?? '')
         } else {
           setIsTokenValid(false)
-          handlePassError(res?.resultCode ?? t('unknownError'))
+          handlePassError(res)
         }
       } catch (e) {
         setIsTokenValid(false)
-        handlePassError(e?.response?.data?.resultCode ?? e?.response?.data?.errorCode)
+        handlePassError(e?.response?.data)
       } finally {
         setIsTokenValidating(false)
       }
@@ -97,7 +100,7 @@ function SetPassword() {
       if (response || response == '') {
         openModalBasic()
       } else {
-        handlePassError(response.data?.resultCode)
+        handlePassError(response.data)
         setIsLoading(false)
         return
       }
@@ -105,7 +108,7 @@ function SetPassword() {
       const store = useUserStore.getState()
       store.logout()
     } catch (error) {
-      handlePassError(error.response?.data?.errorCode)
+      handlePassError(error.response?.data)
       setIsLoading(false)
     }
   }
@@ -177,7 +180,7 @@ function SetPassword() {
                   required: t('required'),
                   validate: (value) => {
                     const { isValid } = validatePassword(value)
-                    return isValid || t('passwordInvalidFormat')
+                    return isValid || t('passwordGuide')
                   }
                 }}
                 render={({ field, fieldState }) => (

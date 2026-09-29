@@ -21,6 +21,7 @@ import {
   ActionButton,
   WifiGrid,
   WifiCard,
+  WifiCardRow,
   WifiMain,
   WifiNameRow,
   WifiName,
@@ -30,8 +31,11 @@ import {
   SignalBar,
   EmptyState,
   EmptyIcon,
+  Spinner,
+  WifiLoadingState,
   ConnectPanel,
   ConnectPanelTop,
+  WifiConnectInline,
   PasswordField,
   PasswordInput,
   TogglePasswordButton,
@@ -97,6 +101,15 @@ const getSignalBars = (signal = 0) => {
   if (signal >= 60) return 3
   if (signal >= 40) return 2
   return 1
+}
+
+// 배지에는 로봇이 쓰는 원시 모드 값(single_wifi 등)을 그대로 보여주지 않는다 — 일반 사용자에게는
+// wlan0/wlan1, STA/AP 같은 인터페이스 용어가 아니라 지금 상태를 바로 알 수 있는 말이 필요하다.
+const modeBadgeLabel = (mode, t) => {
+  if (mode === 'concurrent') return t('network.mode.badge.concurrent')
+  if (mode === 'single_wifi') return t('network.mode.badge.singleWifi')
+  if (mode === 'single_ap') return t('network.mode.badge.singleAp')
+  return t('network.mode.badge.unknown')
 }
 
 const isOpenNetwork = (network) => {
@@ -482,15 +495,22 @@ const Network = () => {
             <HeroDescription>{t('network.description')}</HeroDescription>
           </HeroText>
 
-          <BadgeGroup>
-            <StatusBadge tone={wifiMode.apMode ? 'blue' : 'green'}>
-              {wifiMode.apMode ? t('network.badges.apConnected') : t('network.badges.wifiConnected')}
-            </StatusBadge>
+          {/* 배지와 그 상태를 바꾸는 동작을 같은(오른쪽) 열에 세로로 둔다 — 배지 줄에 나란히 두면
+              버튼도 배지처럼 알약 모양이어야 해서 상태 표시와 동작이 구분되지 않았다. 헤더 구분선
+              (PageHero border-bottom) 위, 제목 줄과 같은 높이에 붙여 둔다. */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.8rem' }}>
+            <BadgeGroup>
+              <StatusBadge tone={wifiMode.apMode ? 'blue' : 'green'}>
+                {wifiMode.apMode ? t('network.badges.apConnected') : t('network.badges.wifiConnected')}
+              </StatusBadge>
+            </BadgeGroup>
 
-            <StatusBadge tone={wifiMode.cached ? 'orange' : 'green'}>
-              {wifiMode.cached ? t('network.badges.cached') : t('network.badges.realtime')}
-            </StatusBadge>
-          </BadgeGroup>
+            {wifiConnected && (
+              <ActionButton onClick={handleDisconnect} disabled={connecting}>
+                {connecting ? t('network.summary.processing') : t('network.summary.disconnect')}
+              </ActionButton>
+            )}
+          </div>
         </PageHero>
 
         {/* 로그인 전 진입 안내. 로그인은 브라우저 → 클라우드 직통이라 로봇이 외부 Wi-Fi 에 붙어야
@@ -510,21 +530,6 @@ const Network = () => {
 
         <SummaryGrid>
           <SummaryCard>
-            <SummaryLabel>{t('network.summary.status')}</SummaryLabel>
-            <SummaryValue>{wifiMode.apMode ? t('network.summary.ap') : t('network.summary.wifi')}</SummaryValue>
-            <SummaryHint>{wifiMode.apMode ? t('network.summary.apHint') : t('network.summary.wifiHint')}</SummaryHint>
-            {wifiConnected && (
-              <ActionButton
-                onClick={handleDisconnect}
-                disabled={connecting}
-                style={{ marginTop: '1.2rem', alignSelf: 'flex-start' }}
-              >
-                {connecting ? t('network.summary.processing') : t('network.summary.disconnect')}
-              </ActionButton>
-            )}
-          </SummaryCard>
-
-          <SummaryCard>
             <SummaryLabel>{t('network.access.title')}</SummaryLabel>
             <SummaryValue accent as="div" style={{ lineHeight: 1.65 }}>
               {accessText.map((line) => (
@@ -539,19 +544,20 @@ const Network = () => {
           <ConnectPanelTop>
             <div>
               <h3>{t('network.mode.title')}</h3>
-              <p>
-                {t('network.mode.current')}{' '}
-                <b>{wifiModeStatus?.label || wifiModeStatus?.mode || t('network.mode.checking')}</b> · STA:{' '}
-                {wifiModeStatus?.sta_iface || 'wlan0'} · AP: {wifiModeStatus?.ap_iface || 'wlan1'}
-              </p>
               <p>{t('network.mode.description')}</p>
+              {/* 이 페이지 맨 아래 혼자 떨어져 있던 문구 — "AP→일반 Wi‑Fi 전환 시 끊김" 은 지금
+                  단일/동시 모드를 고르는 이 패널과 같은 이야기다. 그 맥락 옆에 둔다. */}
+              <SmallNote style={{ marginTop: '0.8rem' }}>{t('network.note')}</SmallNote>
             </div>
+            {/* 배지가 "현재 방식" 을 대신 보여준다 — 문장과 배지 두 곳에서 같은 상태를 중복해서
+                말하지 않는다. 백엔드가 준 사람이 읽을 label 을 우선하고, 없으면 원시 mode 값을
+                modeBadgeLabel 로 사람이 읽을 말로 바꾼다. */}
             <StatusBadge
               tone={
                 wifiModeStatus?.mode === 'concurrent' ? 'green' : wifiModeStatus?.mode === 'single_ap' ? 'blue' : 'gray'
               }
             >
-              {wifiModeStatus?.mode || 'mode'}
+              {wifiModeStatus?.label || modeBadgeLabel(wifiModeStatus?.mode, t)}
             </StatusBadge>
           </ConnectPanelTop>
           <ButtonWrap>
@@ -572,11 +578,19 @@ const Network = () => {
           <SectionHeader>
             <div>
               <SectionTitle>{t('network.scan.title')}</SectionTitle>
-              <SectionDescription>{scanMessage}</SectionDescription>
+              <SectionDescription>
+                {scanMessage}{' '}
+                {/* 이 배지는 연결 상태가 아니라 지금 보이는 목록이 방금 새로 스캔한 것인지, 저장된
+                    캐시인지를 말한다 — 그 목록을 설명하는 문장(scanMessage) 바로 옆이 맞는 자리다. */}
+                <StatusBadge tone={wifiMode.cached ? 'orange' : 'green'}>
+                  {wifiMode.cached ? t('network.badges.cached') : t('network.badges.realtime')}
+                </StatusBadge>
+              </SectionDescription>
             </div>
 
             <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
               <ActionButton onClick={handleScan} disabled={loading || connecting}>
+                {loading && <Spinner $size="1.3rem" style={{ marginRight: '0.6rem' }} />}
                 {loading ? t('network.scan.scanning') : t('network.scan.rescan')}
               </ActionButton>
               {canOfflineRescan && (
@@ -587,6 +601,15 @@ const Network = () => {
             </div>
           </SectionHeader>
 
+          {/* 아직 보여줄 목록이 없는 첫 로딩 — "검색 결과 없음"(EmptyState)과 헷갈리지 않게
+              찾고 있는 중이라는 것을 스피너로 보여준다. */}
+          {networks.length === 0 && loading && (
+            <WifiLoadingState>
+              <Spinner $size="2.4rem" />
+              <span>{t('network.loadingNetworks')}</span>
+            </WifiLoadingState>
+          )}
+
           {networks.length === 0 && !loading && (
             <EmptyState>
               <EmptyIcon>📶</EmptyIcon>
@@ -596,92 +619,88 @@ const Network = () => {
           )}
 
           {networks.length > 0 && (
-            <WifiGrid>
+            // 이미 목록이 있는 채로 재스캔 중이면(loading) 목록을 비우지 않고 살짝 흐리게만 둔다 —
+            // 매번 목록이 사라졌다 나타나면 방금 고른 카드를 다시 찾아야 한다.
+            <WifiGrid style={loading ? { opacity: 0.55, pointerEvents: 'none' } : undefined}>
               {displayedNetworks.map((network, idx) => {
                 const active = selected?.ssid === network.ssid
                 const bars = getSignalBars(network.signal)
 
                 return (
-                  <WifiCard
-                    key={`${network.ssid}-${idx}`}
-                    className={active ? 'active' : ''}
-                    onClick={() => {
-                      if (!connecting) {
-                        setSelected(network)
-                        setManualMode(false)
-                        setManualSsid('')
-                        setManualHidden(false)
-                        setPassword('')
-                      }
-                    }}
-                  >
-                    <WifiMain>
-                      <WifiNameRow>
-                        <WifiName>{network.ssid || t('network.hiddenNetwork')}</WifiName>
-                        {network.in_use && <WifiChip tone="green">{t('network.badges.current')}</WifiChip>}
-                        {active && <WifiChip tone="blue">{t('network.badges.selected')}</WifiChip>}
-                      </WifiNameRow>
+                  <WifiCard key={`${network.ssid}-${idx}`} className={active ? 'active' : ''}>
+                    <WifiCardRow
+                      onClick={() => {
+                        if (!connecting) {
+                          setSelected(network)
+                          setManualMode(false)
+                          setManualSsid('')
+                          setManualHidden(false)
+                          setPassword('')
+                        }
+                      }}
+                    >
+                      <WifiMain>
+                        <WifiNameRow>
+                          <WifiName>{network.ssid || t('network.hiddenNetwork')}</WifiName>
+                          {network.in_use && <WifiChip tone="green">{t('network.badges.current')}</WifiChip>}
+                          {active && <WifiChip tone="blue">{t('network.badges.selected')}</WifiChip>}
+                        </WifiNameRow>
 
-                      <WifiMeta>
-                        <WifiChip>{t('network.scan.security', { value: network.security || 'OPEN' })}</WifiChip>
-                        <WifiChip>{t('network.scan.signalValue', { value: network.signal ?? 0 })}</WifiChip>
-                        <WifiChip>{getSignalLabel(network.signal, t)}</WifiChip>
-                      </WifiMeta>
-                    </WifiMain>
+                        <WifiMeta>
+                          <WifiChip>{t('network.scan.security', { value: network.security || 'OPEN' })}</WifiChip>
+                          <WifiChip>{t('network.scan.signalValue', { value: network.signal ?? 0 })}</WifiChip>
+                          <WifiChip>{getSignalLabel(network.signal, t)}</WifiChip>
+                        </WifiMeta>
+                      </WifiMain>
 
-                    <SignalBars aria-label={`signal ${network.signal}%`}>
-                      {[1, 2, 3, 4].map((n) => (
-                        <SignalBar key={n} className={n <= bars ? 'on' : ''} height={n} />
-                      ))}
-                    </SignalBars>
+                      <SignalBars aria-label={`signal ${network.signal}%`}>
+                        {[1, 2, 3, 4].map((n) => (
+                          <SignalBar key={n} className={n <= bars ? 'on' : ''} height={n} />
+                        ))}
+                      </SignalBars>
+                    </WifiCardRow>
+
+                    {/* 비밀번호 입력 + 연결 버튼만 — 타이틀/설명은 카드 자체가 이미 어느 Wi-Fi 인지
+                        보여주므로 중복이다. 카드 안에 이어붙여 선택과 입력이 한눈에 붙어 보이게 한다. */}
+                    {active && !manualMode && !connecting && (
+                      <WifiConnectInline>
+                        {!selectedIsOpen && (
+                          <PasswordField>
+                            <PasswordInput
+                              type={showPassword ? 'text' : 'password'}
+                              value={password}
+                              onChange={(e) => setPassword(e.target.value)}
+                              placeholder={t('network.connect.passwordPlaceholder')}
+                              autoComplete="current-password"
+                            />
+                            <TogglePasswordButton
+                              type="button"
+                              onClick={() => setShowPassword((value) => !value)}
+                              aria-label={
+                                showPassword ? t('network.connect.hidePassword') : t('network.connect.showPassword')
+                              }
+                              title={
+                                showPassword ? t('network.connect.hidePassword') : t('network.connect.showPassword')
+                              }
+                            >
+                              {showPassword ? '🙈' : '👁️'}
+                            </TogglePasswordButton>
+                          </PasswordField>
+                        )}
+
+                        <ButtonWrap className="alignRight">
+                          <ActionButton onClick={handleConnect} disabled={!selectedIsOpen && !password}>
+                            {t('network.connect.start')}
+                          </ActionButton>
+                        </ButtonWrap>
+                      </WifiConnectInline>
+                    )}
                   </WifiCard>
                 )
               })}
             </WifiGrid>
           )}
         </SectionCard>
-
-        {selected && !manualMode && !connecting && (
-          <ConnectPanel>
-            <ConnectPanelTop>
-              <div>
-                <h3>{t('network.connect.title')}</h3>
-                <p>
-                  {selectedIsOpen
-                    ? t('network.connect.descriptionOpen', { ssid: selectedName })
-                    : t('network.connect.descriptionSecure', { ssid: selectedName })}
-                </p>
-              </div>
-              <StatusBadge tone="blue">{t('network.badges.selectedNetwork')}</StatusBadge>
-            </ConnectPanelTop>
-
-            {!selectedIsOpen && (
-              <PasswordField>
-                <PasswordInput
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder={t('network.connect.passwordPlaceholder')}
-                  autoComplete="current-password"
-                />
-                <TogglePasswordButton
-                  type="button"
-                  onClick={() => setShowPassword((value) => !value)}
-                  aria-label={showPassword ? t('network.connect.hidePassword') : t('network.connect.showPassword')}
-                  title={showPassword ? t('network.connect.hidePassword') : t('network.connect.showPassword')}
-                >
-                  {showPassword ? '🙈' : '👁️'}
-                </TogglePasswordButton>
-              </PasswordField>
-            )}
-
-            <ButtonWrap className="alignRight">
-              <ActionButton onClick={handleConnect} disabled={!selectedIsOpen && !password}>
-                {t('network.connect.start')}
-              </ActionButton>
-            </ButtonWrap>
-          </ConnectPanel>
-        )}
 
         {!connecting && (
           <ConnectPanel>
@@ -847,8 +866,6 @@ const Network = () => {
           </ActionButton>
         </WizardButtonWrap>
       </Section>
-
-      <SmallNote>{t('network.note')}</SmallNote>
     </StyledPageContent>
   )
 }

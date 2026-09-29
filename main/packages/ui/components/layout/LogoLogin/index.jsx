@@ -2,8 +2,8 @@ import SvgLogo from '../../../assets/svgs/logo_login.svg'
 import { useResponsiveStore } from '@repo/stores/useResponsiveStore'
 import { useState } from 'react'
 
-const originalLogoWidth = 180
-const originalLogoHeight = 60
+const originalLogoWidth = 440
+const originalLogoHeight = 120
 
 function LogoLogin({ disableLink = false }) {
   const { responsiveMode } = useResponsiveStore()

@@ -328,21 +328,25 @@ function MapPanels({
   //       거부한 것이므로, pose가 있어도 캔버스에 아무것도 그리지 않고 안내 문구만 계속 표시한다.
   const leftInteractiveReady = loadPhase === 'ready' && !gridOversized && (leftReadyByData || leftHasGrid)
 
-  // ✅ grid가 "이 로그엔 없음"이 확정된 경우 — 계속 기다리는 스피너 대신 안내 문구로 전환
-  //    (pose가 있어도 map 데이터가 없으면 지도/경로를 표시할 수 없으므로 gridUnavailable만으로 판정)
-  const leftNoData = loadPhase === 'ready' && !!gridUnavailable
+  // ✅ grid/pose 각각 "이 로그엔 없음"이 확정된 경우 — 계속 기다리는 스피너 대신 안내 문구로 전환
+  //    두 원인을 구분해야 사용자가 어느 토픽을 봐야 할지 알 수 있으므로 따로 판정한다.
+  const leftGridNoData = loadPhase === 'ready' && !!gridUnavailable
+  const leftPoseNoData = loadPhase === 'ready' && !!poseUnavailable
+  const leftNoData = leftGridNoData || leftPoseNoData
 
   const leftOverlayText = useMemo(() => {
     if (loadPhase === 'error') return t('logreplay.map.loadFailed')
     if (loadPhase === 'init') return t('logreplay.map.initialHint')
     // ✅ 크기 제한 초과는 "수집 대기"나 "데이터 없음"과 달리 확정적 거부 상태이므로 최우선으로 안내
     if (gridOversized) return t('logreplay.map.gridTooLarge')
-    if (leftNoData) return t('logreplay.map.noMapData')
+    if (leftGridNoData && leftPoseNoData) return t('logreplay.map.noMapAndRouteData')
+    if (leftGridNoData) return t('logreplay.map.noMapData')
+    if (leftPoseNoData) return t('logreplay.map.noRouteData')
     if (!leftHasPts && !leftHasGrid) return t('logreplay.map.waitingPathCollection')
     if (loadPhase !== 'ready') return t('logreplay.map.mcapLoading')
     if (!leftReadyByData) return t('logreplay.map.waitingDataStabilize')
     return ''
-  }, [loadPhase, gridOversized, leftNoData, leftHasPts, leftHasGrid, leftReadyByData, t])
+  }, [loadPhase, gridOversized, leftGridNoData, leftPoseNoData, leftHasPts, leftHasGrid, leftReadyByData, t])
 
   // ===============================
   // 우측 센서 차트 게이팅(좌측과 동일한 로딩 Sync)

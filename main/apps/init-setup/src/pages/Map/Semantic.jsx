@@ -8,7 +8,8 @@ import { useEmergencyKey } from '@/hooks/useEmergencyKey'
 import EmergencyKeyBadge from './EmergencyKeyBadge'
 import { NAV_STATUS_TOPICS, SPIN_STATUS_TOPICS, STATUS_TOPICS } from '@/constants/topics'
 import { resolveMapDir } from '@/utils/mapRecord'
-import { resolveMappingMode, resolveStatusLabel } from '@/utils/lioStatus'
+import { toOccupancyGrid } from '@/utils/gridMapImage'
+import { resolveStatusLabel } from '@/utils/lioStatus'
 import { SETUP_STEP_KEYS, tryAdvanceAfter } from '@/utils/setupProgress'
 import {
   isNavMoving,
@@ -22,7 +23,7 @@ import { resolveWsUrl } from '@/utils/wsUrl'
 import { MAP_FRAME, yawOf } from '@/utils/tf'
 import {
   StyledSemanticPageContent,
-  BadgeRow,
+  MapControlsGroup,
   ActionGroup,
   StatusGroup,
   LocationRow,
@@ -147,6 +148,10 @@ const Semantic = () => {
   // (아래 needsGkrSpin) 사용자가 로봇 주변을 확인하고 시작한다.
   const [isSendingGoto, setIsSendingGoto] = useState(false)
   const [isSendingSpin, setIsSendingSpin] = useState(false)
+  // 회전 버튼은 맵 로딩 버튼을 눌러 로드가 성공한 뒤에만 활성화한다 — 맵 로드는 화면 진입으로도
+  // 더는 자동으로 걸리지 않으므로(위 handleLoadMap 만 부른다), GKR 단계에 들어섰다는 상태만으로
+  // 회전을 노출하면 사용자가 직접 로드하지 않은 채로도 회전 버튼이 뜰 수 있다.
+  const [hasLoadedMap, setHasLoadedMap] = useState(false)
 
   // 왼쪽 지도 칸은 Map(스캔) 페이지와 같은 캔버스를 쓴다.
   // 이 화면에는 연결 툴바가 없으므로 진입 시 바로 연결하고 떠날 때 끊는다
@@ -278,14 +283,19 @@ const Semantic = () => {
     setNavTarget(null)
   }, [mapId])
 
-  // TODO(격자맵 재로드): lio_load_grid_map 핸들러가 로봇에 반영되기 전까지 호출을 막아 둔다.
-  // 반영되면 이 refs / handleLoadMap 의 무장 / 아래 effect 주석을 함께 해제한다.
-  //
-  // 맵 로드가 성공하면 무장되고, 그 로드가 측위 완료(ready)에 이르렀을 때 격자맵 재로드를 한 번 건다.
-  // 대상 경로는 무장 시점의 맵 디렉터리를 들고 간다 — 측위가 끝나기 전에 맵 선택을 바꿔도
-  // 방금 로드한 맵의 격자맵을 로드해야 한다.
-  // const gridLoadArmedRef = useRef(false)
-  // const gridLoadTargetRef = useRef(null)
+  // 다른 맵으로 갈아타면 회전 버튼은 다시 잠긴다 — 새 맵을 로드하기 전까지는 아직 그 맵으로
+  // 측위가 진행된 적이 없으므로, 이전 맵에서 로드했다는 사실이 새 맵에는 넘어가면 안 된다.
+  useEffect(() => {
+    setHasLoadedMap(false)
+  }, [mapId])
+
+  // 진입 시 이미 측위 완료(ready)인 로봇의 격자맵 — /lio/grid_map 은 측위가 끝나는 순간
+  // (loading_grid_map → ready) 한 번만 발행되므로, 그 뒤에 화면에 들어온 구독자(이 화면처럼
+  // ready 상태에서 처음 연결하는 경우)는 그 발행을 받지 못해 지도 칸이 계속 빈 채로 남는다.
+  // 로봇에 재발행을 요청하지 않고 BE 가 읽은 저장 파일을 그대로 받아 화면이 직접 그린다.
+  // 실시간 지도가 들어오면(mapData) 그 값이 항상 우선한다 —
+  // 아래 mapSlot 에는 mapData ?? staticGridMap 을 넘긴다.
+  const [staticGridMap, setStaticGridMap] = useState(null)
 
   /**
    * 선택한 맵을 로봇에 로드한다(측위 모드 전환).
@@ -299,16 +309,24 @@ const Semantic = () => {
       return
     }
     setIsLoadingMap(true)
-    // gridLoadArmedRef.current = false
     try {
       const response = await mapApi.loadMapForLocalization({ mapPath: mapDir })
       toast.success(response?.data?.message || t('mapLoadRequested'), { autoClose: 2000 })
       // 로드가 받아들여진 이 시점부터 편집 대상이 이 맵이다 — POI 목록/버전이 여기에 맞춰
       // 다시 조회된다(아래 fetchData effect). 실패하면 이전 대상을 그대로 둔다.
       setLoadedMapId(mapId)
-      // 측위가 끝나면(ready) 이 맵의 2D 격자맵을 한 번 다시 로드한다(아래 effect).
-      // gridLoadArmedRef.current = true
-      // gridLoadTargetRef.current = mapDir
+      // 회전 버튼은 이 로드가 성공한 뒤에만 활성화한다(위 hasLoadedMap 선언부 주석 참고).
+      setHasLoadedMap(true)
+      // 방금 로드한 맵의 격자맵을 바로 받아 캔버스에 그린다 — 실시간 지도(mapData)가 아직 안 들어온
+      // 사이(측위 진행 중)에도 저장된 파일로 먼저 보여준다. 실시간 지도가 들어오면 그 값이 우선한다
+      // (아래 mapSlot 에는 mapData ?? staticGridMap 을 넘긴다).
+      mapApi
+        .getGridMapFile({ savePath: mapDir })
+        .then((res) => toOccupancyGrid(res?.data))
+        .then((grid) => setStaticGridMap(grid))
+        .catch((error) => {
+          console.warn('[SemanticPage] 저장된 격자맵을 불러오지 못했습니다:', error?.message)
+        })
     } catch (error) {
       const message = error?.response?.data?.error?.message || error?.message || 'Request failed'
       toast.error(message, { autoClose: 3000 })
@@ -317,52 +335,42 @@ const Semantic = () => {
     }
   }, [mapDir, mapId, t])
 
-  // 진입 시 자동 맵 로딩 — 작업 중인 맵(inactive 우선)이 이미 선택돼 있으므로 그 맵을 그대로 올린다.
-  // POI 편집은 로봇이 그 맵을 물고 있어야(측위) 지도 위 좌표가 맞으므로, 매번 버튼을 누르게 할 이유가 없다.
-  // 맵 로드는 로봇을 움직이지 않으므로(회전은 걸지 않는다) 자동으로 걸어도 안전하다.
-  //
-  // 단 한 번만, 그리고 "로봇이 아직 맵을 물고 있지 않을 때만" 건다:
-  //   - unknown : 상태 토픽을 아직 못 받았다 → 판단 보류(여기서 걸면 이미 측위된 로봇을 다시 돌린다)
-  //   - saving  : /save_map 처리 중 → 끝나고 mapping 으로 돌아오면 그때 건다
-  //   - mapping : 맵을 안 물고 있다 → 자동 로드
-  //   - 그 외(localization/failed) : 이미 로드했거나 진행 중 → 건드리지 않는다.
-  //     다시 로드하면 추정 위치를 잃고 GKR 360° 재정위를 처음부터 다시 하게 된다.
-  const autoLoadedRef = useRef(false)
+  // 같은 맵 디렉터리로는 한 번만 시도한다(성공/실패 모두) — status 하트비트로 effect 가 계속
+  // 재실행돼도 매번 다시 받지 않는다.
+  const staticGridMapDirRef = useRef(null)
   useEffect(() => {
-    if (autoLoadedRef.current || isLoadingMap || !mapDir) return
-    const mode = resolveMappingMode(lioStatus)
-    if (mode === 'unknown' || mode === 'saving') return
-    autoLoadedRef.current = true
-    if (mode !== 'mapping') return
-    handleLoadMap()
-  }, [mapDir, lioStatus, isLoadingMap, handleLoadMap])
+    // 실시간 지도가 들어오면 파일로 그린 지도는 더 필요 없다 — 캐시를 지워 두면 다음에
+    // 실시간 지도가 끊겨도(재연결 등) 같은 맵을 다시 받아온다.
+    if (mapData) {
+      staticGridMapDirRef.current = null
+      return
+    }
+    // isMapMismatched 인 동안은 mapDir 이 아직 로봇이 물고 있는 맵이 아니므로 받지 않는다 —
+    // 로드가 끝나 mapId 가 맞아떨어지면(그때는 mismatched 가 풀린다) 다시 판단한다.
+    if (!isLocalized || isMapMismatched || !mapDir) return
+    if (staticGridMapDirRef.current === mapDir) return
+    staticGridMapDirRef.current = mapDir
+    let alive = true
+    mapApi
+      .getGridMapFile({ savePath: mapDir })
+      .then((res) => toOccupancyGrid(res?.data))
+      .then((grid) => {
+        if (alive) setStaticGridMap(grid)
+      })
+      .catch((error) => {
+        // 격자맵 파일이 아직 없거나(409) 맵 루트 미마운트(422)는 화면을 막을 문제가 아니다 —
+        // 조용히 넘기고, 실시간 지도가 들어오면 그때 채워진다.
+        console.warn('[SemanticPage] 저장된 격자맵을 불러오지 못했습니다:', error?.message)
+      })
+    return () => {
+      alive = false
+    }
+  }, [isLocalized, isMapMismatched, mapDir, mapData])
 
-  // 맵 로드가 측위 완료(ready)까지 갔으면 그 맵의 2D 격자맵을 다시 로드한다
-  // (POST /robot-hub/load-grid-map → lio_load_grid_map).
-  //
-  // lio_node 도 재정위 성공 직후 스스로 한 번 로드하지만(status: loading_grid_map → ready),
-  // grid_map_node 가 늦게 떠서 서비스가 준비되지 않았으면 경고만 남기고 ready 로 넘어간다
-  // (lio_node.cpp requestGridMapLoad). 그러면 지도 칸이 비어 있고 POI 를 얹을 기준이 없으므로,
-  // 로드에 성공한 맵에 대해서는 한 번 더 확실히 건다. 이미 올라와 있으면 같은 격자맵이
-  // /lio/grid_map 으로 다시 발행될 뿐이라 재로드가 화면을 흐트러뜨리지 않는다.
-  //
-  // status 는 1Hz 하트비트로 같은 값이 계속 오므로, 무장을 먼저 풀어 정확히 1회만 호출한다.
-  //
-  // TODO(격자맵 재로드): lio_load_grid_map 핸들러 반영 전이라 아직 호출하지 않는다.
-  // API(apis/mapApis.loadGridMap)와 BE(POST /robot-hub/load-grid-map)는 이미 연결돼 있으므로
-  // 로봇에 핸들러가 올라가면 위 refs/무장과 함께 이 블록만 해제하면 된다.
-  // useEffect(() => {
-  //   if (!gridLoadArmedRef.current || lioStatus !== 'ready') return
-  //   const savePath = gridLoadTargetRef.current
-  //   gridLoadArmedRef.current = false
-  //   gridLoadTargetRef.current = null
-  //   if (!savePath) return
-  //   mapApi.loadGridMap({ savePath }).catch((error) => {
-  //     // 격자맵 재로드 실패는 측위 실패가 아니다 — 화면은 그대로 두고 토스트로만 알린다.
-  //     const message = error?.response?.data?.error?.message || error?.message || 'Request failed'
-  //     toast.error(message, { autoClose: 3000 })
-  //   })
-  // }, [lioStatus])
+  // 편집 대상 맵이 바뀌면 이전 맵의 격자맵 이미지는 의미가 없다 — 다음 판단까지 빈 지도로 둔다.
+  useEffect(() => {
+    setStaticGridMap(null)
+  }, [mapId])
 
   // 지도 클릭 → 그 지점의 월드 좌표를 말풍선으로 띄운다(아직 이동하지 않는다).
   // 기존 POI 마커를 눌렀으면 MapCanvas 가 그 POI 를 함께 넘겨준다 — 말풍선이 POI 이름을 보여주고
@@ -717,56 +725,61 @@ const Semantic = () => {
       <Title>{t('semanticPageTitle')}</Title>
 
       <LocationRow>
-        {/* 편집할 맵 선택 — 어떤 측위 상태에서도 열어 둔다. 맵을 잘못 골랐다는 것은 보통 측위가
-            진행된 뒤에 알게 되므로, 잠가 두면 끝날 때까지 갈아탈 방법이 없다. 고른 맵을 로봇에
-            실제로 올리는 것은 아래 맵 로드 버튼이고, 움직이는 중인지는 거기서 판단한다.
-            맵 이름은 저장 디렉터리 이름까지 들어가 길어지므로 다른 화면의 표준 폭(180px)의 두 배를 준다
-            — 기본값(내용 폭)으로는 이름이 잘려 어느 맵인지 구분되지 않았다. */}
-        <Dropdown
-          label={t('mapSelect')}
-          size="md"
-          minWidth="360px"
-          value={selectedMapId}
-          options={mapOptions}
-          placeholder={t('noMaps')}
-          onChange={setSelectedMapId}
-          disabled={mapOptions.length === 0}
-        />
+        {/* 맵 선택 + 조작 버튼 묶음 — 조작 버튼이 맵 선택 바로 옆(오른쪽)에 붙게 한 묶음으로 묶는다.
+            상태 배지(StatusGroup)는 이 묶음과 별개로 LocationRow의 다음 자식으로 두어
+            space-between 으로 오른쪽 끝에 붙인다. */}
+        <MapControlsGroup>
+          {/* 편집할 맵 선택 — 어떤 측위 상태에서도 열어 둔다. 맵을 잘못 골랐다는 것은 보통 측위가
+              진행된 뒤에 알게 되므로, 잠가 두면 끝날 때까지 갈아탈 방법이 없다. 고른 맵을 로봇에
+              실제로 올리는 것은 아래 맵 로드 버튼이고, 움직이는 중인지는 거기서 판단한다.
+              맵 이름은 저장 디렉터리 이름까지 들어가 길어지므로 다른 화면의 표준 폭(180px)의 두 배를 준다
+              — 기본값(내용 폭)으로는 이름이 잘려 어느 맵인지 구분되지 않았다. */}
+          <Dropdown
+            label={t('mapSelect')}
+            size="md"
+            minWidth="360px"
+            value={selectedMapId}
+            options={mapOptions}
+            placeholder={t('noMaps')}
+            onChange={setSelectedMapId}
+            disabled={mapOptions.length === 0}
+          />
 
-        <BadgeRow>
-          {/* 조작 버튼 묶음 — 맵 로드 · 회전/정지 · 이동 정지 · 장애물 반영. 상태 배지보다 먼저 두어
-              "누르는 것" 과 "보는 것" 을 시각적으로 나눈다(태블릿 폭에서는 각자 줄로 떨어진다). */}
+          {/* 조작 버튼 묶음 — 맵 로드 · 회전/정지 · 이동 정지 · 장애물 반영. */}
           <ActionGroup>
-            {/* 선택한 맵을 로봇에 로드(측위 전환) — 이동 명령의 전제다. 측위가 끝난 뒤에도 계속
-                노출한다: 다른 맵으로 갈아타는 입구가 이 버튼 하나이기 때문이다(별도의 '다른 맵 로딩'
-                단계를 두면 잘못 고른 맵을 바로잡는 길이 두 단계로 늘어난다).
+            {/* 선택한 맵을 로봇에 로드(측위 전환) — 이동 명령의 전제다. 로드에 성공하면(hasLoadedMap)
+                이 버튼은 숨기고 아래 회전 버튼만 남긴다 — 로드/회전은 한 맵에 대해 순서대로 한 번씩만
+                하는 동작이라 버튼을 동시에 보여줄 필요가 없다. 다른 맵으로 갈아타면(드롭다운 선택 변경)
+                hasLoadedMap 이 다시 false 로 풀리며 이 버튼이 되돌아온다(위 hasLoadedMap 리셋 effect).
                 로봇이 움직이는 중(주행/회전)에만 잠근다 — 움직이는 도중에 기준 맵이 갈리면 진행 중인
                 목표나 재정위가 어느 맵의 좌표인지 알 수 없게 된다. 먼저 정지 버튼으로 멈춰야 한다.
-                진입 시 맵을 안 물고 있으면 자동으로 한 번 걸린다(위 autoLoadedRef effect). 이 버튼은
-                자동 로드를 건너뛴 경우(상태 미수신·로드 실패)와 다른 맵으로 갈아탈 때 쓴다.
                 로드는 회전을 걸지 않는다 — GKR 재정위 회전은 아래 회전 버튼으로만 시작된다. */}
-            <Button
-              size="md"
-              onClick={() => handleLoadMap()}
-              disabled={!mapDir || isLoadingMap || isMapLoadLocked}
-              title={
-                !mapDir
-                  ? t('noMapSelected')
-                  : isMoving
-                    ? t('navMovingHint')
-                    : isSpinBusy
-                      ? t('navSpinningHint')
-                      : mapDir
-              }
-            >
-              {isLoadingMap ? t('waitingForData') : t('loadMap')}
-            </Button>
+            {!hasLoadedMap && (
+              <Button
+                size="md"
+                onClick={() => handleLoadMap()}
+                disabled={!mapDir || isLoadingMap || isMapLoadLocked}
+                title={
+                  !mapDir
+                    ? t('noMapSelected')
+                    : isMoving
+                      ? t('navMovingHint')
+                      : isSpinBusy
+                        ? t('navSpinningHint')
+                        : mapDir
+                }
+              >
+                {isLoadingMap ? t('waitingForData') : t('loadMap')}
+              </Button>
+            )}
 
             {/* 회전 버튼 — GKR 재정위 단계에서 회전을 시작하는 용도(로봇이 한 바퀴 돌아야 측위가 진행된다).
                 회전을 시작하는 경로는 이 버튼 하나다: 맵 로드나 화면 진입이 회전을 걸지는 않는다.
-                회전 중이면 어느 상태에서든 정지 버튼으로 바뀐다: ready 로 바뀐 뒤에도 회전이 남아 있을 수
-                있어서(자동 정지가 먹지 않는 경우) 손으로 멈출 길이 없으면 안 된다. */}
-            {(needsGkrSpin || isRotating) &&
+                맵 로딩 버튼을 눌러 로드가 성공한 뒤에만(hasLoadedMap) 노출한다 — 로드 버튼과 자리를
+                맞바꾼다(위 주석 참고). 회전 중이면 어느 상태에서든 정지 버튼으로 바뀐다: ready 로 바뀐
+                뒤에도 회전이 남아 있을 수 있어서(자동 정지가 먹지 않는 경우) 손으로 멈출 길이 없으면
+                안 된다 — 그래서 다른 맵으로 갈아타 hasLoadedMap 이 풀려도 isRotating 이면 계속 보인다. */}
+            {(hasLoadedMap || isRotating) &&
               (isRotating ? (
                 <Button size="md" theme="delete" onClick={handleStopSpin} disabled={isSendingSpin}>
                   {t('navSpinStop')}
@@ -786,37 +799,41 @@ const Semantic = () => {
             )}
 
           </ActionGroup>
+        </MapControlsGroup>
 
-          {/* 상태 배지 묶음 — 비상정지 · 회전 진행 · 맵 로드/측위 · 주행. */}
-          <StatusGroup>
-            {/* 비상정지 버튼 상태 (/emergency_key_status) — 눌려 있으면 회전/이동이 실제로 일어나지 않는다 */}
-            <EmergencyKeyBadge emergency={emergency} t={t} />
+        {/* 상태 배지 묶음 — 비상정지 · 회전 진행 · 맵 로드/측위 · 주행. */}
+        <StatusGroup>
+          {/* 비상정지 버튼 상태 (/emergency_key_status) — 눌려 있으면 회전/이동이 실제로 일어나지 않는다 */}
+          <EmergencyKeyBadge emergency={emergency} t={t} />
 
-            {/* 회전 진행 상태 (/robot_hub/nav_spin_status) — 회전 중이거나 GKR 단계에서만 의미가 있다 */}
-            {(needsGkrSpin || isRotating) && (
-              <MappingStatusBadge $active={isRotating}>
-                <span className="label typographyBody5">{t('navSpinStatus')}</span>
-                <strong className="value typographyBody5">
-                  {summarizeSpinStatus(spinStatus, t) || t('waitingForData')}
-                </strong>
-              </MappingStatusBadge>
-            )}
-
-            {/* 맵 로드/측위 진행 상태 (/lio_node/status) */}
-            <MappingStatusBadge $active={lioStatus === 'ready'}>
-              <span className="label typographyBody5">{t('status')}</span>
-              <strong className="value typographyBody5">{resolveStatusLabel(lioStatus, t)}</strong>
-            </MappingStatusBadge>
-
-            {/* 주행 진행 상태 (/robot_hub/nav_action_status) */}
-            <MappingStatusBadge $active={isMoving}>
-              <span className="label typographyBody5">{t('navStatus')}</span>
+          {/* 회전 진행 상태 (/robot_hub/nav_spin_status) — 회전 중이거나, 맵 로드 후 GKR 단계일 때만 의미가 있다 */}
+          {((hasLoadedMap && needsGkrSpin) || isRotating) && (
+            <MappingStatusBadge $active={isRotating}>
+              <span className="label typographyBody5">{t('navSpinStatus')}</span>
               <strong className="value typographyBody5">
-                {summarizeNavStatus(navStatus, t) || t('waitingForData')}
+                {summarizeSpinStatus(spinStatus, t) || t('waitingForData')}
               </strong>
             </MappingStatusBadge>
-          </StatusGroup>
-        </BadgeRow>
+          )}
+
+          {/* 맵 로드/측위 진행 상태 (/lio_node/status) — 라벨이 '위치 인식'으로 구체적이라
+              ready 값은 "위치 인식 완료" 대신 "완료"만 둔다(라벨과 중복 방지). 다른 값은
+              Map(스캔) 화면과 공유하는 lioStatus.* 문구를 그대로 쓴다. */}
+          <MappingStatusBadge $active={lioStatus === 'ready'}>
+            <span className="label typographyBody5">{t('localizationStatus')}</span>
+            <strong className="value typographyBody5">
+              {lioStatus === 'ready' ? t('lioStatus.readyShort') : resolveStatusLabel(lioStatus, t)}
+            </strong>
+          </MappingStatusBadge>
+
+          {/* 주행 진행 상태 (/robot_hub/nav_action_status) */}
+          <MappingStatusBadge $active={isMoving}>
+            <span className="label typographyBody5">{t('navStatus')}</span>
+            <strong className="value typographyBody5">
+              {summarizeNavStatus(navStatus, t) || t('waitingForData')}
+            </strong>
+          </MappingStatusBadge>
+        </StatusGroup>
       </LocationRow>
 
       {/* POI 편집 — SemanticPage 가 Section(명령 버튼) + Section(지도 | 목록/상세)을 직접 내보낸다.
@@ -872,7 +889,9 @@ const Semantic = () => {
           }) => (
             <MapClickArea>
               <MapCanvas
-                mapData={mapData}
+                // 실시간 지도(useTelemetry)가 없으면 저장 파일로 그린 격자맵으로 대신한다
+                // (위 staticGridMap effect — 이미 ready 상태로 들어와 /lio/grid_map 발행을 놓친 경우).
+                mapData={mapData ?? staticGridMap}
                 scanData={scanData}
                 odomData={odomData}
                 robotPose={robotPose}

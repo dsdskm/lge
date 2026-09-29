@@ -1,4 +1,4 @@
-import styled, { css } from 'styled-components'
+import styled, { css, keyframes } from 'styled-components'
 
 export const StyledPageContent = styled.div`
   display: flex;
@@ -97,15 +97,13 @@ export const StatusBadge = styled.span`
   ${({ tone = 'gray' }) => badgeTone[tone] || badgeTone.gray}
 `
 
+// 남은 카드가 '접속 주소 안내' 하나뿐이라(연결 상태 카드는 상단 배지와 중복이라 없앴다)
+// 더는 2열 그리드가 필요 없다 — 카드 하나를 전체 폭으로 보여준다.
 export const SummaryGrid = styled.div`
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 1.4rem;
   margin-top: 2.2rem;
-
-  @media (max-width: 768px) {
-    grid-template-columns: 1fr;
-  }
 `
 
 export const SummaryCard = styled.div`
@@ -142,7 +140,7 @@ export const SectionCard = styled.div`
   margin-top: 2.4rem;
   border: 1px solid #e1e6ef;
   border-radius: 2rem;
-  background: #ffffff;
+  background: rgb(248, 250, 252);
   padding: 2rem;
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
 `
@@ -208,21 +206,20 @@ export const WifiGrid = styled.div`
   margin-top: 1.6rem;
   max-height: 36rem;
   overflow-y: auto;
-  padding-right: 0.4rem;
+  padding: 0.4rem;
 `
 
-export const WifiCard = styled.button`
+// 카드 자체는 더 이상 클릭 전체가 선택 버튼이 아니다 — 선택은 안의 WifiCardRow 가 맡고,
+// 카드는 선택 시 그 아래에 이어지는 비밀번호 입력(WifiConnectInline)까지 함께 담는 그릇이다.
+export const WifiCard = styled.div`
   width: 100%;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1.6rem;
+  flex-direction: column;
+  gap: 1.2rem;
   border: 1px solid #e3e8ef;
   border-radius: 1.8rem;
   background: #ffffff;
   padding: 1.55rem 1.6rem;
-  text-align: left;
-  cursor: pointer;
   transition: 0.15s ease;
   box-shadow: 0 3px 10px rgba(15, 23, 42, 0.03);
 
@@ -236,6 +233,16 @@ export const WifiCard = styled.button`
     background: var(--color-neutral-15);
     box-shadow: 0 0 0 3px rgba(125, 119, 106, 0.13);
   }
+`
+
+export const WifiCardRow = styled.div`
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.6rem;
+  text-align: left;
+  cursor: pointer;
 `
 
 export const WifiMain = styled.div`
@@ -331,6 +338,39 @@ export const EmptyState = styled.div`
   }
 `
 
+const spin = keyframes`
+  to {
+    transform: rotate(360deg);
+  }
+`
+
+// 큰 스피너(목록 첫 로딩)와 헤더 옆 작은 스피너(이미 목록이 있는 채로 재스캔) 모두 이걸 쓴다 —
+// $size 로만 구분해서, 크기 다른 스피너가 서로 다른 애니메이션 규칙을 갖지 않게 한다.
+export const Spinner = styled.span`
+  display: inline-block;
+  width: ${({ $size }) => $size || '2rem'};
+  height: ${({ $size }) => $size || '2rem'};
+  border: 3px solid #e3e8ef;
+  border-top-color: var(--t-primary-btn-bg);
+  border-radius: 50%;
+  vertical-align: middle;
+  animation: ${spin} 0.7s linear infinite;
+`
+
+// Wi‑Fi 목록을 처음 불러오는 동안(아직 보여줄 목록이 없을 때) EmptyState 자리에 대신 뜬다 —
+// 검색 결과가 없다는 오해(EmptyState) 대신 아직 찾고 있다는 것을 보여준다.
+export const WifiLoadingState = styled.div`
+  margin-top: 1.6rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.2rem;
+  padding: 4rem 2rem;
+  color: #667085;
+  font-size: 1.3rem;
+`
+
 export const EmptyIcon = styled.div`
   width: 4.6rem;
   height: 4.6rem;
@@ -372,6 +412,31 @@ export const ConnectPanelTop = styled.div`
     font-size: 1.3rem;
     line-height: 1.55;
   }
+`
+
+// 카드가 선택되며 이 패널이 나타날 때, 위 WifiCardRow 가 그 무게에 살짝 눌려 내려오는
+// 느낌을 준다 — 등장이 뚝 끊기지 않고 위에서 부드럽게 펼쳐지는 것처럼 보이게 한다.
+const slideDown = keyframes`
+  from {
+    transform: translateY(-0.6rem);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+`
+
+// 목록에서 고른 Wi-Fi 카드 안에 이어지는 비밀번호 입력 + 연결 버튼.
+// 타이틀/설명 없이 입력과 버튼만 두어, 카드를 고르는 것과 접속을 시작하는 것 사이에
+// 눈길이 다른 곳(멀리 떨어진 섹션)으로 튀지 않게 한다.
+export const WifiConnectInline = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  padding-top: 1.4rem;
+  border-top: 1px dashed #d8dee8;
+  animation: ${slideDown} 0.22s ease-out;
 `
 
 export const PasswordField = styled.div`
@@ -653,10 +718,15 @@ export const RadioLine = styled.label`
   display: flex;
   align-items: center;
   gap: 0.9rem;
+  margin-top: 1.6rem;
   color: var(--color-neutral-90);
   font-size: 1.4rem;
   font-weight: 800;
   cursor: pointer;
+
+  &:first-of-type {
+    margin-top: 0;
+  }
 
   input {
     accent-color: var(--t-primary-btn-bg);

@@ -28,16 +28,8 @@ export const LogoWrapper = styled.div`
   align-items: center;
   flex-direction: column;
   display: flex;
-  margin-bottom: 3em;
+  margin-bottom: 2em;
   font-size: initial !important;
-
-  .logo-root svg text {
-    font-size: 42px !important; /* 필요시 !important로 전역 규칙을 이김 */
-  }
-
-  .logo-root svg text[data-part='tm'] {
-    font-size: 12px !important;
-  }
 `
 
 export const Title = styled.h2`

@@ -290,7 +290,7 @@ const poiColorsOf = (type, isDeleted) => {
  *   LINE / RECTANGLE: 좌클릭 드래그가 팬 대신 도형 그리기가 된다.
  *   POLYGON: 클릭마다 점이 하나 찍히고(끌면 평소처럼 팬이다), 첫 점을 다시 누르거나 우클릭 또는
  *   Enter 로 닫는다. Esc 는 찍던 점을 모두 버린다(모드는 유지 — 다시 찍기 시작할 수 있다).
- *   휠 확대/축소는 모든 형태에서 그대로 쓴다.
+ *   Ctrl+휠 확대/축소는 모든 형태에서 그대로 쓴다.
  * @param {Function} [onObstacleDrawn] 도형이 확정될 때 호출 — ({ shape, points: [{x,y}...] }).
  *   좌표는 지도 프레임(m)이고 점 순서는 그린 순서를 그대로 유지한다. 사각형만은 끈 방향과
  *   무관하게 좌상 → 우상 → 우하 → 좌하(월드 기준 시계방향)로 정규화되어 들어온다.
@@ -1312,7 +1312,7 @@ function MapCanvas({
     return () => observer.disconnect()
   }, [wrapperEl, clampView])
 
-  // 휠 확대/축소(커서 기준) + 드래그 이동
+  // Ctrl+휠 확대/축소(커서 기준) + 드래그 이동
   useEffect(() => {
     const wrapper = wrapperEl
     if (!wrapper) return
@@ -1341,6 +1341,9 @@ function MapCanvas({
     const handleWheel = (e) => {
       // 조작 줄 위에서 굴린 휠은 지도 확대/축소가 아니다(드롭다운 목록 스크롤을 막지 않는다).
       if (isOverlayEvent(e)) return
+      // Ctrl(트랙패드 핀치는 브라우저가 ctrlKey=true 로 보낸다)을 누른 휠만 확대/축소로 쓴다 —
+      // 일반 휠은 페이지를 그대로 스크롤하게 두어, 지도 위에서 스크롤하다 실수로 확대/축소되지 않게 한다.
+      if (!e.ctrlKey) return
       e.preventDefault()
       const rect = (canvasRef.current ?? wrapper).getBoundingClientRect()
       if (!rect.width || !rect.height) return
@@ -1900,16 +1903,16 @@ function MapCanvas({
       ref={setWrapperNode}
       title={
         drawObstacleShape === OBSTACLE_SHAPE_POINT
-          ? '클릭: 점 장애물 지정 · 드래그: 이동 · 휠: 확대/축소'
+          ? '클릭: 점 장애물 지정 · 드래그: 이동 · Ctrl+휠: 확대/축소'
           : drawObstacleShape === OBSTACLE_SHAPE_LINE
-            ? '드래그: 선분 장애물 지정 · 휠: 확대/축소'
+            ? '드래그: 선분 장애물 지정 · Ctrl+휠: 확대/축소'
             : drawObstacleShape === OBSTACLE_SHAPE_RECTANGLE
-              ? '드래그: 가상 장애물 영역 지정 · 휠: 확대/축소'
+              ? '드래그: 가상 장애물 영역 지정 · Ctrl+휠: 확대/축소'
               : drawObstacleShape === OBSTACLE_SHAPE_POLYGON
                 ? '클릭: 점 추가 · 우클릭/Enter/첫 점 클릭: 닫기 · Esc: 다시 찍기 · 드래그: 이동'
                 : editingObstacleId != null
-                  ? '꼭지점 드래그: 모양 수정 · 그 밖 드래그: 이동 · 휠: 확대/축소'
-                  : '휠: 확대/축소 · 드래그: 이동 · 더블클릭: 전체보기'
+                  ? '꼭지점 드래그: 모양 수정 · 그 밖 드래그: 이동 · Ctrl+휠: 확대/축소'
+                  : 'Ctrl+휠: 확대/축소 · 드래그: 이동 · 더블클릭: 전체보기'
       }
     >
       <Canvas ref={canvasRef} />

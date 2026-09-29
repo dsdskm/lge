@@ -24,8 +24,10 @@
     "loadingGridMap": "2Dマップ読み込み中",
     "recovering": "自己位置再確認中",
     "ready": "自己位置推定完了",
+    "readyShort": "完了",
     "failed": "失敗"
   },
+  "localizationStatus": "自己位置推定",
   "pageTitle": "マップスキャン",
   "disconnected": "切断",
   "connecting": "接続中",

@@ -81,7 +81,9 @@ async function getMeshCdnBase(configId, modelName) {
       // URDF의 package:// 상대경로를 그대로 CDN 경로로 추측하지 않고, 이 목록에 있는 것만 요청하기 위함.
       const filesByName = new Map()
       for (const f of Array.isArray(resp?.files) ? resp.files : []) {
-        const baseName = String(f?.name || '').split('/').pop()
+        const baseName = String(f?.name || '')
+          .split('/')
+          .pop()
         if (baseName && f?.url) filesByName.set(baseName.toLowerCase(), f.url)
       }
       const expiresAt = new Date(resp?.expiresAt).getTime()
@@ -224,7 +226,50 @@ function URDFRobot({ robotRef, controlsRef, robotDescription }) {
       }
     }
 
-    loader.loadMeshCb = (rawPath, _manager, done) => {
+    // URDFLoader.load()의 onComplete는 parse()가 끝나자마자(=각 <mesh> 태그마다 loadMeshCb를
+    // "시작"만 시킨 시점) 바로 불린다 — 개별 메시(fetch+워커 파싱)가 실제로 끝나길 기다리지 않는다.
+    // 그래서 onComplete에서 곧바로 Box3를 재면, 그 순간 캐시 히트 등으로 "우연히" 먼저 붙은
+    // 일부(작은) 메시만 잡혀 bbox가 실제 로봇보다 훨씬 작게 나오고, 그걸 기준으로 2.5 목표 스케일을
+    // 계산해버려 나머지 메시가 뒤늦게 붙을 때 로봇 전체가 과도하게 커 보이는 원인이 된다.
+    // → loadMeshCb 호출 수를 카운트해 모든 메시가 실제로 붙은 뒤에만 스케일/카메라 피팅을 수행한다.
+    let pendingMeshLoads = 0
+    let parseDone = false
+    let sizingDone = false
+
+    const maybeApplySizing = () => {
+      if (sizingDone || disposed || !parseDone || pendingMeshLoads > 0) return
+      sizingDone = true
+
+      const robot = robotRef.current
+      if (!robot) return
+
+      // ✅ 조건 없이 항상 스케일 정규화 (목표 높이 2.5 기준)
+      const box1 = new THREE.Box3().setFromObject(robot)
+      const size1 = box1.getSize(new THREE.Vector3())
+      const maxDim1 = Math.max(size1.x, size1.y, size1.z)
+
+      if (Number.isFinite(maxDim1) && maxDim1 > 0) {
+        const s = 2.5 / maxDim1
+        robot.scale.setScalar(s)
+        robot.updateMatrixWorld(true)
+      }
+
+      // 스케일 적용 후 다시 box 계산
+      const box2 = new THREE.Box3().setFromObject(robot)
+      fitCameraToBox(camera, controlsRef, box2, 1.8)
+    }
+
+    loader.loadMeshCb = (rawPath, _manager, doneCb) => {
+      pendingMeshLoads++
+      const done = (obj) => {
+        pendingMeshLoads--
+        try {
+          doneCb(obj)
+        } finally {
+          maybeApplySizing()
+        }
+      }
+
       const path = resolveActualMeshPath(rawPath)
       if (!path) {
         console.error('[URDF] mesh not found in CDN files list, skip:', rawPath)
@@ -367,7 +412,9 @@ function URDFRobot({ robotRef, controlsRef, robotDescription }) {
       // packages는 URDF 파싱 중 동기 호출되므로, 로드 전에 base URL을 미리 확보해둔다.
       // 서버는 configs/cloid/<모델명>/ 단위로 메시를 나눠두므로, 모델명 하나로 CDN을 한 번만 조회하고
       // URDF가 참조하는 모든 package://에 동일하게 적용한다.
-      const referencedPkgs = Array.from(new Set([...robotDescription.matchAll(/package:\/\/([^/]+)\//g)].map((m) => m[1])))
+      const referencedPkgs = Array.from(
+        new Set([...robotDescription.matchAll(/package:\/\/([^/]+)\//g)].map((m) => m[1]))
+      )
       const modelName = extractRobotModelName(robotDescription)
 
       if (modelName) {
@@ -396,20 +443,10 @@ function URDFRobot({ robotRef, controlsRef, robotDescription }) {
           robot.rotation.x = -Math.PI / 2
           robot.updateMatrixWorld(true)
 
-          // ✅ 조건 없이 항상 스케일 정규화 (목표 높이 2.5 기준)
-          const box1 = new THREE.Box3().setFromObject(robot)
-          const size1 = box1.getSize(new THREE.Vector3())
-          const maxDim1 = Math.max(size1.x, size1.y, size1.z)
-
-          if (Number.isFinite(maxDim1) && maxDim1 > 0) {
-            const s = 2.5 / maxDim1
-            robot.scale.setScalar(s)
-            robot.updateMatrixWorld(true)
-          }
-
-          // 스케일 적용 후 다시 box 계산
-          const box2 = new THREE.Box3().setFromObject(robot)
-          fitCameraToBox(camera, controlsRef, box2, 1.8)
+          // parse()는 각 메시 로딩을 "시작"만 시키고 끝나므로, 여기서는 아직 일부 메시가
+          // 안 붙어있을 수 있다. 실제 스케일/카메라 피팅은 모든 메시가 붙은 뒤 maybeApplySizing에서.
+          parseDone = true
+          maybeApplySizing()
         },
         undefined,
         (err) => console.error('[URDF] load failed:', err)

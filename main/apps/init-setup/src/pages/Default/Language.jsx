@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Section } from '@repo/ui'
-import i18n from '@/i18n'
 import {
   StyledPageContent,
   PageHero,
@@ -43,19 +42,12 @@ const toOption = (lang) => {
   }
 }
 
-// i18n 현재 언어에 가장 가까운 코드를 고른다 (정확 일치 -> 언어 서브태그 일치 -> 첫 항목).
-const pickInitialCode = (options) => {
-  const current = i18n.resolvedLanguage || i18n.language || ''
-  const exact = options.find((option) => option.code === current)
-  if (exact) return exact.code
-  const base = current.split('-')[0]
-  const partial = base && options.find((option) => option.code.split('-')[0] === base)
-  return partial?.code ?? options[0]?.code ?? ''
-}
+// 저장된 언어가 없을 때 쓸 기본값 (첫 항목).
+const pickInitialCode = (options) => options[0]?.code ?? ''
 
 const Language = () => {
   const navigate = useNavigate()
-  const { t, i18n: reactI18n } = useTranslation('setup')
+  const { t } = useTranslation('setup')
   const [options, setOptions] = useState([])
   const [selected, setSelected] = useState('')
   const [loading, setLoading] = useState(true)
@@ -83,12 +75,6 @@ const Language = () => {
     load()
   }, [load])
 
-  // 우측 상단 지구본에서 언어를 바꾸면 이 화면의 선택 상태도 즉시 따라간다.
-  useEffect(() => {
-    const currentCode = pickInitialCode(options)
-    if (currentCode) setSelected(currentCode)
-  }, [options, reactI18n.resolvedLanguage, reactI18n.language])
-
   const handleNext = async () => {
     setBusy(true)
     setErr('')
@@ -98,8 +84,6 @@ const Language = () => {
         await updateLanguage(option.id, { enabled: option.code === selected })
       }
 
-      await i18n.changeLanguage(selected)
-      window.localStorage.setItem('i18nextLng', selected)
       // 이 단계를 끝냈으므로 '작업 중인 단계' 를 다음 화면(설치 모드 선택)으로 옮긴다.
       // 모드를 고르기 전까지는 뒤 단계 목록이 정해지지 않으므로 여기서는 항상 모드 선택이 다음이다.
       // (네트워크 설정은 설치 단계에서 빠져 헤더 Wi-Fi 아이콘으로만 들어간다 — routes.jsx)
@@ -133,11 +117,7 @@ const Language = () => {
                   key={language.id}
                   type="button"
                   $active={active}
-                  onClick={async () => {
-                    setSelected(language.code)
-                    await reactI18n.changeLanguage(language.code)
-                    window.localStorage.setItem('i18nextLng', language.code)
-                  }}
+                  onClick={() => setSelected(language.code)}
                   aria-pressed={active}
                 >
                   <LanguageRadio $active={active} aria-hidden="true" />

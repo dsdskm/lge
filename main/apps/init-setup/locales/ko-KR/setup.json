@@ -152,21 +152,27 @@
       "interrupted": "연결 해제 요청 중 연결이 끊겼을 수 있습니다. 접속 주소 안내를 참고해 유선/AP로 다시 접속하세요."
     },
     "mode": {
-      "title": "Wi‑Fi 인터페이스 모드",
-      "current": "현재 모드:",
+      "title": "Wi‑Fi 연결 방식",
+      "current": "현재 방식:",
       "checking": "확인 중",
-      "description": "동시 AP+Wi‑Fi 모드는 wlan0을 외부 Wi‑Fi 연결용, wlan1을 ROBOT_SETUP AP용으로 사용합니다.",
-      "concurrentButton": "wlan0 Wi‑Fi + wlan1 AP 모드",
-      "singleButton": "wlan0 단일 모드로 복귀",
-      "refresh": "모드 상태 새로고침",
-      "confirmConcurrent": "wlan0=외부 Wi‑Fi, wlan1=AP 동시 모드로 전환합니다. AP가 잠시 재시작될 수 있습니다. 진행할까요?",
-      "confirmSingle": "wlan0 단일 모드로 전환합니다. wlan0가 이미 Wi‑Fi에 연결되어 있으면 연결은 유지하고, 연결되어 있지 않으면 AP 모드로 복귀합니다. 진행할까요?",
-      "changingConcurrent": "동시 AP+Wi‑Fi 모드로 전환 중입니다.",
-      "changingSingle": "wlan0 단일 모드로 전환 중입니다.",
-      "concurrentLabel": "동시 AP+Wi‑Fi 모드",
-      "singleLabel": "wlan0 단일 모드",
+      "description": "동시 모드로 전환하면 외부 Wi‑Fi에 연결된 상태에서도 ROBOT_SETUP AP를 계속 켜 둘 수 있습니다. 보통은 단일 모드로 충분합니다.",
+      "concurrentButton": "외부 Wi‑Fi + ROBOT_SETUP AP 동시 사용",
+      "singleButton": "단일 모드로 전환",
+      "refresh": "상태 새로고침",
+      "confirmConcurrent": "외부 Wi‑Fi 와 ROBOT_SETUP AP를 동시에 사용하도록 전환합니다. AP가 잠시 재시작될 수 있습니다. 진행할까요?",
+      "confirmSingle": "단일 모드로 전환합니다. 이미 외부 Wi‑Fi에 연결되어 있으면 그 연결은 유지되고, 연결되어 있지 않으면 ROBOT_SETUP AP로 돌아갑니다. 진행할까요?",
+      "changingConcurrent": "동시 모드로 전환 중입니다.",
+      "changingSingle": "단일 모드로 전환 중입니다.",
+      "concurrentLabel": "동시 모드(외부 Wi‑Fi + ROBOT_SETUP AP)",
+      "singleLabel": "단일 모드",
       "changed": "{{label}} 전환 요청이 완료되었습니다. AP가 재시작되었다면 10~20초 후 다시 접속하세요.",
-      "failed": "모드 전환 실패: {{message}}"
+      "failed": "모드 전환 실패: {{message}}",
+      "badge": {
+        "concurrent": "동시 모드",
+        "singleWifi": "Wi‑Fi 연결됨",
+        "singleAp": "ROBOT_SETUP AP",
+        "unknown": "확인 중"
+      }
     },
     "manual": {
       "title": "네트워크 직접 입력",

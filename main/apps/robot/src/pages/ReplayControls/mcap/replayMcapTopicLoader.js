@@ -613,16 +613,22 @@ function getTimeRangeFromReader(reader) {
   }
 }
 
+// /base/robot_description은 이 로봇에서 참고용으로 쓰지 않기로 확인됨(2026-09) → /robot_description만 사용.
+const ROBOT_DESCRIPTION_TOPIC_PRIORITY = ['/robot_description']
+
 async function loadRobotDescription(reader) {
   const channelsById = reader?.channelsById || new Map()
   const schemasById = reader?.schemasById || new Map()
 
-  let robotDescription = null
+  const byTopic = new Map() // topic -> robotDescription string(토픽별 첫 메시지만, URDF는 latched 1회성)
 
   try {
-    for await (const entry of reader.readMessages({ topics: ['/robot_description'] })) {
+    for await (const entry of reader.readMessages({ topics: ROBOT_DESCRIPTION_TOPIC_PRIORITY })) {
       const channel =
         entry?.channel || (entry?.channelId != null ? getFromMapFlexible(channelsById, entry.channelId) : null) || null
+
+      const topic = channel?.topic
+      if (!topic || byTopic.has(topic)) continue
 
       const data = entry?.message?.data ?? entry?.data
       if (!data) continue
@@ -637,16 +643,18 @@ async function loadRobotDescription(reader) {
         decoder
       })
 
-      if (obj?.data) {
-        robotDescription = obj.data
-        break
-      }
+      if (obj?.data) byTopic.set(topic, obj.data)
+
+      if (ROBOT_DESCRIPTION_TOPIC_PRIORITY.every((t) => byTopic.has(t))) break
     }
   } catch (e) {
-    console.warn('[ReplayControls] URDF(/robot_description) 읽기 실패:', e)
+    console.warn('[ReplayControls] URDF(robot_description) 읽기 실패:', e)
   }
 
-  return robotDescription
+  for (const topic of ROBOT_DESCRIPTION_TOPIC_PRIORITY) {
+    if (byTopic.has(topic)) return byTopic.get(topic)
+  }
+  return null
 }
 
 function getAvailableTopicsSet(reader) {

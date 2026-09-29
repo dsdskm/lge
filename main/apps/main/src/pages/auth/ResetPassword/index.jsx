@@ -3,6 +3,7 @@ import { resetPasswordComplete } from '@repo/apis'
 import { useForm, Controller } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { Button, Input, LogoLogin } from '@repo/ui'
+import { validatePassword } from '@repo/utils'
 import { ClipLoader } from 'react-spinners'
 import { useSearchParams } from 'react-router-dom'
 import { useModalState } from '@repo/hooks'
@@ -48,13 +49,11 @@ function ResetPassword() {
       case 'USER_40004':
         setErrorEmail(t('invalidEmail'))
         break
-      case 'BAD_REQUEST':
-        if (param && Array.isArray(param)) {
-          setErrorMessage(param[0].message)
-        } else {
-          setErrorMessage(t('unknownError'))
-        }
+      case 'BAD_REQUEST': {
+        const isPasswordInvalid = Array.isArray(param) && param.some((err) => err.field === 'userPassword')
+        setErrorMessage(isPasswordInvalid ? t('passwordInvalid') : t('unknownError'))
         break
+      }
       default:
         setErrorMessage(t('unknownError'))
         break
@@ -160,8 +159,11 @@ function ResetPassword() {
                 name="pw"
                 control={control}
                 rules={{
-                  required: t('required')
-                  // 필요하면 여기에 minLength/regex 추가 가능
+                  required: t('required'),
+                  validate: (value) => {
+                    const { isValid } = validatePassword(value)
+                    return isValid || t('passwordGuide')
+                  }
                 }}
                 render={({ field, fieldState }) => (
                   <Input

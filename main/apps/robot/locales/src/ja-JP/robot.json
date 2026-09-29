@@ -67,6 +67,7 @@
     "rollbackFail": "ロールバックに失敗しました。"
   },
   "dashboard": "ダッシュボード",
+  "errorMessage": "エラーメッセージ",
   "robotManagement": "ロボット管理",
   "robotList": "ロボット一覧",
   "robotTypeName": "ロボットタイプ名",
@@ -743,7 +744,9 @@
       "waitingPathCollection": "経路収集待ち…",
       "mcapLoading": "MCAP読み込み中…",
       "waitingDataStabilize": "データ安定化待ち…",
-      "noMapData": "このログには地図/経路データがありません",
+      "noMapData": "このログには地図データがありません",
+      "noRouteData": "このログには経路データがありません",
+      "noMapAndRouteData": "このログには地図/経路データがありません",
       "gridTooLarge": "地図データが大きすぎて表示できません",
       "noSensorData": "このログにはセンサー(pose/odom)データがありません",
       "controlsHint": "左クリック: 回転  |  右クリック: 移動  |  ホイール: ズーム"

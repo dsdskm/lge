@@ -152,21 +152,27 @@
       "interrupted": "The connection may have dropped while requesting disconnect. Use the wired/AP addresses to reconnect."
     },
     "mode": {
-      "title": "Wi‑Fi Interface Mode",
+      "title": "Wi‑Fi Connection Mode",
       "current": "Current mode:",
       "checking": "Checking",
-      "description": "Concurrent AP+Wi‑Fi mode uses wlan0 for external Wi‑Fi and wlan1 for the ROBOT_SETUP AP.",
-      "concurrentButton": "wlan0 Wi‑Fi + wlan1 AP mode",
-      "singleButton": "Return to wlan0 single mode",
-      "refresh": "Refresh mode status",
-      "confirmConcurrent": "Switch to concurrent mode: wlan0 for external Wi‑Fi and wlan1 for AP. The AP may restart briefly. Continue?",
-      "confirmSingle": "Switch to wlan0 single mode. If wlan0 is already connected to Wi‑Fi, the connection is kept; otherwise it returns to AP mode. Continue?",
-      "changingConcurrent": "Switching to concurrent AP+Wi‑Fi mode.",
-      "changingSingle": "Switching to wlan0 single mode.",
-      "concurrentLabel": "Concurrent AP+Wi‑Fi mode",
-      "singleLabel": "wlan0 single mode",
+      "description": "Switching to concurrent mode keeps the ROBOT_SETUP AP on even while connected to external Wi‑Fi. Single mode is enough for most cases.",
+      "concurrentButton": "Use external Wi‑Fi + ROBOT_SETUP AP together",
+      "singleButton": "Switch to single mode",
+      "refresh": "Refresh status",
+      "confirmConcurrent": "Switch to using external Wi‑Fi and the ROBOT_SETUP AP at the same time. The AP may restart briefly. Continue?",
+      "confirmSingle": "Switch to single mode. If already connected to external Wi‑Fi, that connection is kept; otherwise it returns to the ROBOT_SETUP AP. Continue?",
+      "changingConcurrent": "Switching to concurrent mode.",
+      "changingSingle": "Switching to single mode.",
+      "concurrentLabel": "Concurrent mode (external Wi‑Fi + ROBOT_SETUP AP)",
+      "singleLabel": "Single mode",
       "changed": "{{label}} switch request completed. If the AP restarted, reconnect after 10–20 seconds.",
-      "failed": "Mode switch failed: {{message}}"
+      "failed": "Mode switch failed: {{message}}",
+      "badge": {
+        "concurrent": "Concurrent mode",
+        "singleWifi": "Wi‑Fi connected",
+        "singleAp": "ROBOT_SETUP AP",
+        "unknown": "Checking"
+      }
     },
     "manual": {
       "title": "Manual Network Entry",

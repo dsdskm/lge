@@ -67,6 +67,7 @@
     "rollbackFail": "롤백에 실패했습니다."
   },
   "dashboard": "대시보드",
+  "errorMessage": "에러 문구",
   "robotManagement": "로봇 관리",
   "robotList": "로봇 목록",
   "robotTypeName": "로봇 타입명",
@@ -743,7 +744,9 @@
       "waitingPathCollection": "경로 수집 대기…",
       "mcapLoading": "MCAP 로딩 중…",
       "waitingDataStabilize": "데이터 안정화 대기…",
-      "noMapData": "이 로그에는 지도/경로 데이터가 없습니다",
+      "noMapData": "이 로그에는 지도 데이터가 없습니다",
+      "noRouteData": "이 로그에는 경로 데이터가 없습니다",
+      "noMapAndRouteData": "이 로그에는 지도/경로 데이터가 모두 없습니다",
       "gridTooLarge": "지도 데이터가 너무 커서 표시할 수 없습니다",
       "noSensorData": "이 로그에는 센서(pose/odom) 데이터가 없습니다",
       "controlsHint": "좌클릭: 회전  |  우클릭: 이동  |  휠: 줌"

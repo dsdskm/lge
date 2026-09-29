@@ -48,7 +48,6 @@ export const uploadPoi = async (body) => {
  * 맵 리소스 CRUD(/maps)와 달리 DB 를 건드리지 않는 로봇 명령이므로 경로가 /robot-hub 다.
  *   POST /robot-hub/mapping/start  → lio_switch_mode(mode=mapping)
  *   POST /robot-hub/save-map       → lio_save_map(save_path)
- *   POST /robot-hub/load-grid-map  → lio_load_grid_map(save_path)
  * 예외로 POST /robot-hub/save-map/publish 는 로봇 명령이 아니라 BE 의 파일 작업이다
  * (작업본 디렉터리 rename + 맵 레코드 경로 갱신). 경로만 같은 그룹에 있다.
  *
@@ -179,32 +178,25 @@ export const waitForGridMap = async (name, { timeoutMs = 20000, intervalMs = 100
 }
 
 /**
- * 저장된 2D 격자맵 로드 (POST /robot-hub/load-grid-map).
+ * 저장된 2D 격자맵 파일(+yaml 메타) 조회 (GET /robot-hub/save-map/grid-map).
  *
- * 평소에는 lio_node 가 재정위에 성공한 직후 스스로 로드한다(status: loading_grid_map → ready).
- * 이 호출은 그 자동 로드가 없었거나 실패했을 때(grid_map_node 가 늦게 떠서 서비스가 준비되지
- * 않았던 경우 등) 다시 걸기 위한 것이다 — 3D 맵/재정위 상태는 그대로 두고 /lio/grid_map 만 채운다.
+ * /lio/grid_map 은 측위 완료 시(loading_grid_map → ready) 한 번만 발행되므로, 그 뒤에 화면에
+ * 들어온 구독자(이미 ready 상태로 진입한 시맨틱 화면)는 지도를 받지 못한다. 로봇에 재발행을
+ * 요청하지 않고 저장 파일을 그대로 받아 화면이 직접 그릴 때 쓴다(utils/gridMapImage.toOccupancyGrid).
  *
- * 넘기는 값은 맵 디렉터리(name 또는 savePath)다 — ROS2 서비스가 받는 '<맵 디렉터리>/grid_map'
- * 조립은 BE 가 한다.
- *
- * 전역 에러 팝업을 끈다(skipErrorPopup) — 409(GRID_MAP_NOT_READY, 격자맵 파일이 아직 없음)는
- * 잠시 후 재시도로 이어져야 하고, 나머지도 화면에서 상황별 토스트로 안내하는 편이 낫다.
+ * 전역 에러 팝업을 끈다(skipErrorPopup) — 저장 직후(격자맵 미완료, 409)나 맵 루트 미마운트(422)는
+ * 흔한 상황이고, 화면이 조용히 건너뛰거나 상황별로 안내하는 편이 낫다.
  *
  * @param {{name?: string, savePath?: string}} payload 맵 디렉터리 이름 또는 경로(하나는 필수)
- * @returns {Promise<{success: boolean, data: {name: string, savePath: string, gridMapPath: string,
- *   message: string}}>}
+ * @returns {Promise<{success: boolean, data: {name: string, savePath: string,
+ *   image: {file: string, mime: string, base64: string, bytes: number}, meta: object|null}}>}
  */
-export const loadGridMap = async ({ name, savePath } = {}) => {
-  if (!name && !savePath) throw new Error('name or savePath is required to load a grid map')
-  return await axiosApi.post(
-    '/robot-hub/load-grid-map',
-    {
-      ...(name ? { name } : {}),
-      ...(savePath ? { save_path: savePath } : {})
-    },
-    { skipErrorPopup: true }
-  )
+export const getGridMapFile = async ({ name, savePath } = {}) => {
+  if (!name && !savePath) throw new Error('name or savePath is required to fetch a grid map file')
+  return await axiosApi.get('/robot-hub/save-map/grid-map', {
+    params: { ...(name ? { name } : {}), ...(savePath ? { save_path: savePath } : {}) },
+    skipErrorPopup: true
+  })
 }
 
 /**

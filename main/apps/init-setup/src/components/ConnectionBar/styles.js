@@ -1,56 +1,6 @@
-import styled, { css, keyframes } from 'styled-components'
+import styled from 'styled-components'
 
-/** 연결 중 배지의 점이 숨을 쉬게 한다 — '진행 중' 을 글자 없이도 알 수 있게. */
-const pulse = keyframes`
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
-`
-
-/**
- * 연결 상태 배지 — 색 계열($tone)만 바꿔 쓰는 알약형 태그.
- *
- * 단색 채움 대신 (배경 15 · 테두리 30 · 글자 80 · 점 60) 한 계열의 명도만 나눠 쓴다 — 툴바에서
- * 배지가 버튼보다 튀지 않아야 하고, 이 앱의 다른 상태 배지(pages/Map MappingStatusBadge)도
- * 같은 방식이다. 색 계열은 vars.css 의 4개 계열이 모두 같은 단계(15/30/60/80)를 갖고 있어
- * 이름만 끼워 넣는다.
- *
- * 색만으로 상태를 나타내지 않는다 — 점 옆에 상태 텍스트를 항상 함께 둔다.
- */
-export const ConnectionBadge = styled.span`
-  display: inline-flex;
-  align-items: center;
-  gap: 0.6rem;
-  flex-shrink: 0;
-  padding: 0.5rem 1.2rem;
-  border: 1px solid ${({ $tone }) => `var(--color-${$tone}-30)`};
-  border-radius: 100px;
-  background: ${({ $tone }) => `var(--color-${$tone}-15)`};
-  color: ${({ $tone }) => `var(--color-${$tone}-80)`};
-  font-size: var(--font-size-body-6);
-  line-height: var(--line-height-body-6);
-  font-weight: 700;
-  white-space: nowrap;
-
-  &::before {
-    content: '';
-    width: 0.8rem;
-    height: 0.8rem;
-    flex-shrink: 0;
-    border-radius: 50%;
-    background: ${({ $tone }) => `var(--color-${$tone}-60)`};
-    ${({ $pulse }) =>
-      $pulse &&
-      css`
-        animation: ${pulse} 1.2s ease-in-out infinite;
-
-        @media (prefers-reduced-motion: reduce) {
-          animation: none;
-        }
-      `}
-  }
-`
-
-/** 업데이트 주기 조절 묶음 — 배지와 같은 알약형으로 맞춰 툴바 오른쪽 줄을 정돈한다. */
+/** 업데이트 주기 조절 묶음 — 알약형으로 툴바 오른쪽 줄을 정돈한다. */
 export const FpsControl = styled.label`
   display: inline-flex;
   align-items: center;

@@ -48,17 +48,6 @@ function secToClock(tSec) {
   return `${mm}:${ss}`
 }
 
-// Content-Disposition 에서 파일명 추출 (LogReplay 패턴과 동일 계열)
-function extractFilenameFromContentDisposition(cd) {
-  try {
-    const starMatch = cd.match(/filename\*\s*=\s*([^']*)''([^;]+)/i)
-    if (starMatch && starMatch[2]) return decodeURIComponent(starMatch[2])
-    const match = cd.match(/filename\s*=\s*("?)([^";]+)\1/i)
-    if (match && match[2]) return match[2]
-  } catch {}
-  return null
-}
-
 function triggerAnchorDownload(href, fileName, openInNewTab = false) {
   const a = document.createElement('a')
   a.style.display = 'none'
@@ -953,55 +942,31 @@ export default function useReplayControlsLogic({
     const selected = logOptions.find((l) => l.id === selectedLogId)
     if (!selected) return
 
+    const fallbackFileName = selected?.label?.replace(/\s+/g, '_') || `${selected?.id || 'file'}`
+
     setIsPreparingDownload(true)
 
-    const downloadUrl = await getPresignedUrl(selectedLogId)
+    let downloadUrl
+    try {
+      downloadUrl = await getPresignedUrl(selectedLogId)
+    } catch (err) {
+      console.warn('[ReplayControls] 다운로드: presigned URL 조회 실패:', err?.message || String(err))
+      setIsPreparingDownload(false)
+      alert(t('replayControls.header.downloadUrlMissing'))
+      return
+    }
     if (!downloadUrl) {
       setIsPreparingDownload(false)
       alert(t('replayControls.header.downloadUrlMissing'))
       return
     }
 
-    const fallbackFileName = selected?.label?.replace(/\s+/g, '_') || `${selected?.id || 'file'}`
-
-    try {
-      const resp = await fetch(downloadUrl, { mode: 'cors' })
-      if (!resp.ok) throw new Error(`다운로드 실패: HTTP ${resp.status}`)
-
-      const blob = await resp.blob()
-      const cd = resp.headers.get('Content-Disposition') || resp.headers.get('content-disposition')
-      const serverFileName = cd ? extractFilenameFromContentDisposition(cd) : null
-      const finalFileName = serverFileName || fallbackFileName
-
-      if (window.showSaveFilePicker) {
-        try {
-          setIsPreparingDownload(false)
-          const pickerHandle = await window.showSaveFilePicker({
-            suggestedName: finalFileName
-          })
-          const writable = await pickerHandle.createWritable()
-          await writable.write(blob)
-          await writable.close()
-          return
-        } catch (pickerErr) {
-          if (pickerErr && (pickerErr.name === 'AbortError' || pickerErr.name === 'NotAllowedError')) return
-          console.warn('[ReplayControls] 다운로드: showSaveFilePicker 실패/취소 → <a download> 폴백', pickerErr)
-        }
-      }
-
-      const blobUrl = URL.createObjectURL(blob)
-      setIsPreparingDownload(false)
-      try {
-        triggerAnchorDownload(blobUrl, finalFileName)
-      } finally {
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000)
-      }
-    } catch (err) {
-      console.warn('[ReplayControls] 다운로드: fetch 실패 → 원본 URL <a download>로 폴백', err)
-      setIsPreparingDownload(false)
-      triggerAnchorDownload(downloadUrl, fallbackFileName, true)
-    }
-  }, [selectedLogId, logOptions, getPresignedUrl])
+    // presigned URL로 직접 다운로드시켜 브라우저 자체 다운로드 진행률을 그대로 사용한다.
+    // (fetch → blob 방식은 다운로드가 다 끝날 때까지 진행률이 전혀 안 보이고, 응답이 안 오면 무한정 멈춘다)
+    // openInNewTab=true로 두면 새 탭이 잠깐 열렸다 닫히며 화면이 깜박이므로 새 탭을 띄우지 않는다.
+    setIsPreparingDownload(false)
+    triggerAnchorDownload(downloadUrl, fallbackFileName)
+  }, [selectedLogId, logOptions, getPresignedUrl, t])
 
   // 언마운트 시 후속 setState 차단
   useEffect(() => {

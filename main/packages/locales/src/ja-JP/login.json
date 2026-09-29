@@ -74,6 +74,6 @@
   "required": "必須入力です。",
   "passwordConfirm": "パスワードの確認",
   "passwordSetComplete": "パスワード設定完了",
-  "passwordGuide": "英字大文字、英字小文字、数字、特殊文字の3種類の組み合わせで8文字以上、または2種類の組み合わせで10文字以上入力してください。",
+  "passwordGuide": "パスワードは8文字以上で、英字、数字、特殊文字を含める必要があります。",
   "passwordInvalidFormat": "パスワード要件を確認してください"
 }

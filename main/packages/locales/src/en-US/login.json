@@ -74,6 +74,6 @@
   "required": "Required field.",
   "passwordConfirm": "Confirm password",
   "passwordSetComplete": "Password set complete",
-  "passwordGuide": "Enter a password with 3 types of combinations (uppercase, lowercase, numbers, special characters) 8 characters or more, or 2 types of combinations 10 characters or more.",
+  "passwordGuide": "Password must be at least 8 characters long and include letters, numbers, and special characters.",
   "passwordInvalidFormat": "Check password requirements"
 }

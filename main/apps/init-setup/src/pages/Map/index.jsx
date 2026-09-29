@@ -253,7 +253,6 @@ export default function Map() {
           <ConnectionBar
             status={status}
             onConnect={connect}
-            onDisconnect={disconnect}
             fps={fps}
             onFpsChange={setFps}
             mapName={mapName}

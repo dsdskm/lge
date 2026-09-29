@@ -28,6 +28,7 @@ export const LocationRow = styled.div`
 export const MappingStatusBadge = styled.div`
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 0.8rem;
   flex-shrink: 0;
   margin-bottom: 2rem;
@@ -74,13 +75,10 @@ export const EmptyMessage = styled.p`
   color: var(--color-neutral-70);
 `
 
-// 위치 선택 줄의 오른쪽 묶음 — 상태 배지들(Map) / 조작 버튼 + 상태 배지들(Semantic).
+// Map(스캔) 화면의 위치 선택 줄 오른쪽 묶음 — 상태 배지들만 담는다.
 // LocationRow 가 space-between 이라 배지를 개별 자식으로 두면 가운데로 벌어진다 — 묶어서 오른쪽에 붙인다
 // (LocationBar 가 줄바꿈될 때도 오른쪽 정렬이 유지되도록 margin-left: auto 를 함께 준다).
-//
-// Semantic 화면에서는 이 안에 ActionGroup(조작 버튼)과 StatusGroup(상태 배지)을 순서대로 넣어
-// 성격이 다른 두 묶음을 시각적으로 나눈다 — Map(스캔) 화면은 배지만 직접 자식으로 두므로
-// 영향받지 않는다.
+// Semantic 화면에서는 이 컴포넌트를 쓰지 않는다 — 아래 MapControlsGroup/StatusGroup 참고.
 export const BadgeRow = styled.div`
   display: flex;
   align-items: center;
@@ -88,13 +86,23 @@ export const BadgeRow = styled.div`
   flex-wrap: wrap;
   margin-left: auto;
 
-  /* 태블릿 폭에서는 조작/상태 두 묶음이 각자 줄로 떨어져도 오른쪽 정렬을 유지한다. */
   @media (max-width: 1280px) {
     justify-content: flex-end;
   }
 `
 
-// 조작 버튼 묶음(맵 로드 · 회전/정지 · 이동 정지 · 장애물 반영) — BadgeRow 안에서 상태 배지보다 먼저 온다.
+// Semantic 화면 전용 — 맵 선택 Dropdown 과 ActionGroup(조작 버튼)을 한 묶음으로 묶어 LocationRow의
+// 첫 자식으로 둔다. 조작 버튼이 Dropdown 바로 옆에 붙게 하려는 목적이라(요청 전에는 BadgeRow 가
+// Dropdown 과 멀찍이 떨어진 오른쪽 끝에 버튼+배지를 함께 밀어 두고 있었다), 오른쪽으로 미는
+// margin-left 는 주지 않는다 — 오른쪽 정렬은 StatusGroup(아래) 이 LocationRow의 space-between으로 맡는다.
+export const MapControlsGroup = styled.div`
+  display: flex;
+  align-items: flex-end;
+  gap: 1.6rem;
+  flex-wrap: wrap;
+`
+
+// 조작 버튼 묶음(맵 로드 · 회전/정지 · 이동 정지 · 장애물 반영) — MapControlsGroup 안에서 Dropdown 다음에 온다.
 export const ActionGroup = styled.div`
   display: flex;
   align-items: center;
@@ -109,16 +117,20 @@ export const ActionGroup = styled.div`
   }
 `
 
-// 상태 배지 묶음(비상정지 · 회전 진행 · 맵 로드/측위 · 주행) — ActionGroup 다음에 온다.
+// Semantic 화면의 상태 배지 묶음(비상정지 · 회전 진행 · 맵 로드/측위 · 주행) — LocationRow의 마지막
+// 자식으로 두어 margin-left: auto 로 오른쪽 끝에 붙인다. 배지가 4개로 늘면서 세로 1열로 쌓으면
+// 옆의 컨트롤(맵 선택 · 버튼)보다 훨씬 높아져 가운데에 빈 공간이 커 보였다 — 2열 그리드로 접어
+// 세로 높이를 절반으로 줄인다. 각 열은 그 열에서 가장 넓은 배지에 맞춰 자동으로 너비가 맞춰지므로
+// (grid-auto-columns) 배지마다 텍스트 길이가 달라도 열 안에서는 좌우가 들쭥날쭥하지 않는다.
 export const StatusGroup = styled.div`
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(2, auto);
   gap: 0.8rem;
-  flex-wrap: wrap;
+  margin-left: auto;
 
   /* MappingStatusBadge 는 Map(스캔) 화면과 공유하는 컴포넌트라 자체 margin-bottom(2rem)을 갖는다
-     (그 화면에서는 위치 선택 줄과의 아래선을 맞추기 위한 값). 여기서는 그룹 자체가
-     align-items: center 로 다른 배지/버튼과 나란히 정렬되므로 그 여백은 지운다. */
+     (그 화면에서는 위치 선택 줄과의 아래선을 맞추기 위한 값). 여기서는 그룹 자체가 그리드로 배치되므로
+     그 여백은 지운다. */
   & > div {
     margin-bottom: 0;
   }

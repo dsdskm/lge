@@ -23,7 +23,7 @@ import { toast } from 'react-toastify'
 import MapSaveCompleteModal from '@/components/MapSaveCompleteModal'
 import MapSaveLocationModal from '@/components/MapSaveLocationModal'
 import MapOverwriteModal from '@/components/MapOverwriteModal'
-import { ConnectionBadge, FpsControl, FpsSlider, MappingActions, Toolbar } from './styles'
+import { FpsControl, FpsSlider, MappingActions, Toolbar } from './styles'
 
 /** 새 작업본에 저장할 때의 대상 — 난수 폴더 + 새 레코드(재사용할 레코드가 없다). */
 const NEW_SAVE_TARGET = () => ({ dirName: newWorkingMapDirName(), recordId: null })
@@ -31,16 +31,16 @@ const NEW_SAVE_TARGET = () => ({ dirName: newWorkingMapDirName(), recordId: null
 /**
  * ConnectionBar
  *
- * 매핑 툴바 — 시작/저장/재시작 조작 + WebSocket 연결 상태 표시.
+ * 매핑 툴바 — 시작/저장/재시작 조작.
  *
  * 연결 자체는 페이지가 진입 시 이미 해 둔다(pages/Map) — 비상정지 버튼 상태처럼 조작 전에 확인해야
- * 하는 값이 텔레메트리로 오기 때문이다. 그래도 시작 버튼은 연결을 겸한다: 진입 시 연결이 실패했거나
- * 사용자가 해제한 뒤에 눌린 경우를 위한 폴백이다.
+ * 하는 값이 텔레메트리로 오기 때문이다. 그래도 시작 버튼은 연결을 겸한다: 진입 시 연결이 실패한
+ * 경우를 위한 폴백이다.
  *
  * WebSocket 주소는 화면에 노출하지 않는다 — 현재 페이지 기준으로 계산되므로(utils/wsUrl) 사용자가
- * 고칠 값이 아니고, 연결 상태는 옆 배지로 보인다. 연결 조작 버튼도 매핑을 시작하기 전에는 두지
- * 않는다(시작이 연결을 겸한다). 세션이 열린 뒤에만 연결 해제 버튼이 보이고, 해제한 뒤에는 다시
- * 연결할 수 있도록 연결 버튼이 돌아온다.
+ * 고칠 값이 아니다. 연결 해제 버튼은 두지 않는다 — 사용자가 매핑 중에 일부러 끊을 이유가 없다.
+ * 연결 조작 버튼도 매핑을 시작하기 전에는 두지 않는다(시작이 연결을 겸한다). 세션이 열린 뒤에도
+ * 연결이 끊겨 있을 때만(초기 연결 실패 등) 다시 붙일 연결 버튼이 보인다.
  *
  * 맵 이름은 여기서 입력받지 않는다 — 위치 계층(Building/Floor/Area)에서 만든 mapName(표시용)과
  * 시작 가능 여부(canStartMapping)를 부모(pages/Map)에서 props 로 받는다. 저장 폴더 이름은 난수라
@@ -67,7 +67,6 @@ const NEW_SAVE_TARGET = () => ({ dirName: newWorkingMapDirName(), recordId: null
 export default function ConnectionBar({
   status,
   onConnect,
-  onDisconnect,
   fps,
   onFpsChange,
   mapName = '',
@@ -91,10 +90,6 @@ export default function ConnectionBar({
   // 명령 왕복 중 중복 클릭 방지 — 세션 상태가 아니라 요청 진행 여부다.
   const [isBusy, setIsBusy] = useState(false)
   const inMappingSession = sessionStarted
-  // 연결 조작부 노출 조건 — 매핑 세션일 때만.
-  // 페이지가 진입 시 이미 연결해 두므로(pages/Map) 연결 여부로는 판단하지 않는다: 그러면 화면에
-  // 들어오는 것만으로 주소창과 해제 버튼이 떠서, 매핑 전에 주소를 만질 이유가 없다는 전제가 깨진다.
-  const showConnectionControls = inMappingSession
   // 저장 완료 모달 상태. savedMap 이 있으면 모달이 열린다.
   const [savedMap, setSavedMap] = useState(null)
   // 저장 위치(Building/Floor/Area) 선택 모달 — 저장 버튼은 이 모달만 열고, 실제 저장은 모달에서 한다.
@@ -113,16 +108,6 @@ export default function ConnectionBar({
     },
     []
   )
-
-  // 연결 상태별 표시 텍스트와 색 계열(vars.css 의 계열 이름 — ConnectionBadge 가 명도만 나눠 쓴다).
-  // 연결 안 됨은 error 가 아니다(아직 붙지 않았거나 사용자가 끊은 상태) — 회색 계열로 눕혀 둔다.
-  const STATUS_CONFIG = {
-    disconnected: { label: t('disconnected'), tone: 'secondary' },
-    connecting: { label: t('connecting'), tone: 'warning', pulse: true },
-    connected: { label: t('connected'), tone: 'success' },
-    error: { label: t('error'), tone: 'error' }
-  }
-  const { label, tone, pulse: pulseDot = false } = STATUS_CONFIG[status] || STATUS_CONFIG.disconnected
 
   // 위치 계층을 받아온 경우에는 Building/Floor/Area 가 모두 선택돼야 매핑을 시작할 수 있다
   // (맵 이름이 곧 위치라서, 미선택 상태로 시작하면 어디를 그린 맵인지 남지 않는다).
@@ -396,25 +381,9 @@ export default function ConnectionBar({
       <Toolbar>
         {/* 페이지 제목은 페이지의 Title 이 담당한다 — 툴바는 조작 요소만 갖는다. */}
 
-        {/* WebSocket 주소는 입력창으로 노출하지 않는다 — 현재 페이지 기준으로 계산되므로
-            (utils/wsUrl.js, 빌드에 박힌 주소가 없다) 사용자가 고칠 값이 아니다.
-            연결 조작은 시작 전에는 노출하지 않는다 — 시작 버튼이 연결까지 겸한다. 시작 이후에만
-            해제 버튼이 보이고, 세션 중 해제했다면 다시 연결할 수 있도록 연결 버튼이 돌아온다. */}
-        {showConnectionControls &&
-          (isConnected ? (
-            <Button size="md" theme="delete" onClick={onDisconnect}>
-              {t('disconnect')}
-            </Button>
-          ) : (
-            <Button size="md" onClick={onConnect} disabled={isConnecting}>
-              {isConnecting ? t('connecting') : t('connect')}
-            </Button>
-          ))}
-
-        {/* 연결 상태 표시 뱃지 */}
-        <ConnectionBadge $tone={tone} $pulse={pulseDot}>
-          {label}
-        </ConnectionBadge>
+        {/* 연결/해제 버튼은 두지 않는다 — 연결은 페이지 진입 시 자동으로 붙고(pages/Map), 실패하면
+            시작 버튼이 연결까지 겸해서 다시 시도한다(아래 handleStart). WebSocket 주소도 입력창으로
+            노출하지 않는다 — 현재 페이지 기준으로 계산되므로(utils/wsUrl.js) 사용자가 고칠 값이 아니다. */}
 
         {/* 업데이트 주기 (FPS) 조절 슬라이더 — 잠시 감춘다.
             fps 는 그대로 부모의 기본값(10 Hz)으로 동작한다(useTelemetry) — 이 UI 만 빠진다.

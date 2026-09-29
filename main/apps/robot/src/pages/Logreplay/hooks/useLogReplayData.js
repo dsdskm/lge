@@ -2,11 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { fileApis } from '@/apis'
-import {
-  extractFilenameFromContentDisposition,
-  triggerAnchorDownload,
-  compileKeywordMatcher
-} from '../logReplayRender.js'
+import { triggerAnchorDownload, compileKeywordMatcher } from '../logReplayRender.js'
 import useLogSearch from './useLogSearch.js'
 import {
   loadPosesFromMcapUrl,
@@ -699,6 +695,12 @@ export default function useLogReplayData({
     }
   }, [selectedDate, selectedLogId, deviceId])
 
+  // 페이지 로드시 오늘 날짜로 자동 조회 (mount 1회) — ReplayControls와 동일하게 당일 로그를 바로 조회
+  useEffect(() => {
+    handleFetchListClick()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // 선택 변경 (초기화는 상위 훅에서)
   const onDateChange = useCallback((date) => {
     setSelectedDate(date)
@@ -948,59 +950,29 @@ export default function useLogReplayData({
     const selected = logOptions.find((l) => l.id === selectedLogId)
     if (!selected) return
 
+    const fallbackFileName = selected?.label?.replace(/\s+/g, '_') || `${selected?.id || 'log'}.mcap`
+
     setIsPreparingDownload(true)
-    const downloadUrl = await getPresignedUrl(selectedLogId)
+    let downloadUrl
+    try {
+      downloadUrl = await getPresignedUrl(selectedLogId)
+    } catch (err) {
+      console.warn('[Logreplay] 다운로드: presigned URL 조회 실패:', err?.message || String(err))
+      setIsPreparingDownload(false)
+      alert(t('logreplay.alerts.downloadUrlMissing'))
+      return
+    }
     if (!downloadUrl) {
       setIsPreparingDownload(false)
       alert(t('logreplay.alerts.downloadUrlMissing'))
       return
     }
 
-    const fallbackFileName = selected?.label?.replace(/\s+/g, '_') || `${selected?.id || 'log'}.mcap`
-
-    try {
-      const resp = await fetch(downloadUrl, { mode: 'cors' })
-      if (!resp.ok) throw new Error(t('logreplay.alerts.downloadFailed', { status: resp.status }))
-
-      const blob = await resp.blob()
-      const cd = resp.headers.get('Content-Disposition') || resp.headers.get('content-disposition')
-      const serverFileName = cd ? extractFilenameFromContentDisposition(cd) : null
-      const finalFileName = serverFileName || fallbackFileName
-
-      if (window.showSaveFilePicker) {
-        try {
-          setIsPreparingDownload(false)
-          const pickerHandle = await window.showSaveFilePicker({
-            suggestedName: finalFileName,
-            types: [
-              {
-                description: t('logreplay.alerts.mcapFileDescription'),
-                accept: { 'application/octet-stream': ['.mcap'], 'application/x-mcap': ['.mcap'] }
-              }
-            ]
-          })
-          const writable = await pickerHandle.createWritable()
-          await writable.write(blob)
-          await writable.close()
-          return
-        } catch (pickerErr) {
-          if (pickerErr && (pickerErr.name === 'AbortError' || pickerErr.name === 'NotAllowedError')) return
-          console.warn('[Logreplay] 다운로드: showSaveFilePicker 실패/취소 → <a download> 폴백', pickerErr)
-        }
-      }
-
-      const blobUrl = URL.createObjectURL(blob)
-      setIsPreparingDownload(false)
-      try {
-        triggerAnchorDownload(blobUrl, finalFileName)
-      } finally {
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 10_000)
-      }
-    } catch (err) {
-      console.warn('[Logreplay] 다운로드: fetch 실패 → 원본 URL <a download>로 폴백', err)
-      setIsPreparingDownload(false)
-      triggerAnchorDownload(downloadUrl, fallbackFileName, true)
-    }
+    // presigned URL로 직접 다운로드시켜 브라우저 자체 다운로드 진행률을 그대로 사용한다.
+    // (fetch → blob 방식은 다운로드가 다 끝날 때까지 진행률이 전혀 안 보이고, 응답이 안 오면 무한정 멈춘다)
+    // openInNewTab=true로 두면 새 탭이 잠깐 열렸다 닫히며 화면이 깜박이므로 새 탭을 띄우지 않는다.
+    setIsPreparingDownload(false)
+    triggerAnchorDownload(downloadUrl, fallbackFileName)
   }, [selectedLogId, logOptions, getPresignedUrl, t])
 
   // Lichtblick
@@ -1157,6 +1129,16 @@ export default function useLogReplayData({
       if (!Number.isFinite(centerSec)) return
 
       // ✅ 초기 로딩은 작은 윈도우(±3s)로 빠르게 표시, 이후 ±12s
+      //
+      // ⚠️ [알려진 한계, 2026-09-16] 이 HALF(미리읽기 폭)는 배속과 무관하게 고정된 "실시간" 초 단위다.
+      //   재생이 빠를수록(예: 10×) 재생 헤드가 실시간보다 그만큼 빨리 전진하므로, 같은 12초짜리 창을
+      //   받아오는 사이에 재생 헤드가 그 창을 앞질러버린다 — 그 결과 고배속에서 pose 데이터가 재생
+      //   위치를 못 따라잡아 마커/지나온 경로가 sparse 폴백(정밀도 낮음)으로 자주 빠지고 자주 끊긴다.
+      //   배속(playbackRate)에 비례해 HALF를 늘리는 개선을 검토했으나, 이 훅엔 playbackRate가 없고
+      //   (player2D 쪽에만 있음) 창을 키우면 단일 요청 자체가 더 오래 걸려 오히려 악화될 위험도 있어
+      //   보류했다. 결론: "고배속=정밀도 저하"는 지금은 의도적으로 감내하는 한계다. 배속별 동적 확대가
+      //   필요해지면 playbackRate를 이 훅까지 전달하는 것부터 시작할 것(getPlayTimeSec/getSeekEpoch와
+      //   같은 getter 패턴 참고).
       const HALF = reason === 'grid-ready' ? 3 : reason === 'seek' ? 2 : 12
       // ✅ pose 캐시는 "항상 누적"한다("지나온 경로" 보존). 과거엔 logAccModeRef(로그 전용 ref)에
       //    묶여 있었는데, 재생 중 이 값이 seek/accumulate로 flip되면서 로드 완료 시점에 seek이면

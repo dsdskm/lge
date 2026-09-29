@@ -1,6 +1,6 @@
 /**
  * 비밀번호 유효성 검사
- * 규칙: 영문 대/소, 숫자, 특수문자 중 3가지 조합으로 8자 이상 또는 2가지 조합으로 10자 이상
+ * 규칙: 영문, 숫자, 특수문자를 포함하여 8~20자
  * @param {string} password - 검사할 비밀번호
  * @returns {object} { isValid: boolean, reason?: string }
  */
@@ -9,23 +9,12 @@ export const validatePassword = (password) => {
     return { isValid: false, reason: 'empty' }
   }
 
-  const hasUpperCase = /[A-Z]/.test(password)
-  const hasLowerCase = /[a-z]/.test(password)
+  const hasLetter = /[a-zA-Z]/.test(password)
   const hasDigit = /[0-9]/.test(password)
-  const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)
-
-  const combinationCount = [hasUpperCase, hasLowerCase, hasDigit, hasSpecialChar].filter(Boolean).length
+  const hasSpecialChar = /[!@#$%&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)
   const length = password.length
 
-  if (combinationCount === 3 && length >= 8) {
-    return { isValid: true }
-  }
-
-  if (combinationCount === 2 && length >= 10) {
-    return { isValid: true }
-  }
-
-  if (combinationCount >= 4 && length >= 8) {
+  if (hasLetter && hasDigit && hasSpecialChar && length >= 8 && length <= 20) {
     return { isValid: true }
   }
 
@@ -55,7 +44,7 @@ export const getPasswordStrengthInfo = (password) => {
   const hasUpperCase = /[A-Z]/.test(password)
   const hasLowerCase = /[a-z]/.test(password)
   const hasDigit = /[0-9]/.test(password)
-  const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)
+  const hasSpecialChar = /[!@#$%&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)
 
   const combinationCount = [hasUpperCase, hasLowerCase, hasDigit, hasSpecialChar].filter(Boolean).length
   const length = password.length

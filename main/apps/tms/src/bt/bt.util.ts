@@ -161,7 +161,7 @@ export function isReactiveSequenceRuleMatch(node: Node, outgoing?: OutgoingInfo)
 }
 
 export function isParallelRuleMatch(node: Node, outgoing?: OutgoingInfo): boolean {
-  return isParallelControlNode(node) && hasLeftBranches(outgoing)
+  return isParallelControlNode(node)
 }
 
 export function isRepeatRuleMatch(node: Node, outgoing?: OutgoingInfo): boolean {

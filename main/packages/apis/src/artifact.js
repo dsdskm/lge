@@ -1,7 +1,7 @@
 import createClient from './client'
 import { ENDPOINTS } from './constants'
 
-const axiosOta = createClient(import.meta.env.VITE_OTA_API_BASE_URL)
+const axiosOta = createClient(import.meta.env.VITE_OTA_API_BASE_URL, 30 * 60 * 1000)
 const mockUpData = false // import.meta.env.VITE_MODE !== 'local'
 const packageTypeOptions = ['docker', 'xml', 'package']
 

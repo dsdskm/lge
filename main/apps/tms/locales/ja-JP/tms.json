@@ -105,7 +105,7 @@
       "mainNodes": "Main 노드",
       "mainNodesDesc": "성공/실패 판정에 사용할 노드를 선택하세요. 선택되지 않은 노드는 항상 성공으로 처리됩니다.",
       "mainNodesEmpty": "연결된 자식 노드가 없습니다",
-      "parallelSuccessCountGuide": "BT反映値: success_count({{input}}) + non-main({{nonMainCount}}) = {{effective}}",
+      "parallelSuccessCountGuide": "BT反映値: success_count={{input}}",
       "parallelSuccessCountAuto": "BT反映値: success_count=-1 (自動)",
       "parallelSuccessCountNoMain": "mainノードがないため success_count を計算できません。",
       "parallelSuccessCountInvalid": "現在の success_count({{input}}) は main ノード数 ({{mainCount}}) を超えています。"

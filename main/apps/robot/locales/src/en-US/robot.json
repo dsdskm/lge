@@ -67,6 +67,7 @@
     "rollbackFail": "Rollback failed."
   },
   "dashboard": "Dashboard",
+  "errorMessage": "Error Message",
   "robotManagement": "Robot Management",
   "robotList": "Robot List",
   "robotTypeName": "Robot Type Name",
@@ -743,7 +744,9 @@
       "waitingPathCollection": "Waiting for path data…",
       "mcapLoading": "Loading MCAP…",
       "waitingDataStabilize": "Waiting for data to stabilize…",
-      "noMapData": "This log has no map/path data",
+      "noMapData": "This log has no map data",
+      "noRouteData": "This log has no route data",
+      "noMapAndRouteData": "This log has no map or route data",
       "gridTooLarge": "Map data is too large to display",
       "noSensorData": "This log has no sensor (pose/odom) data",
       "controlsHint": "Left-click: Rotate  |  Right-click: Move  |  Wheel: Zoom"

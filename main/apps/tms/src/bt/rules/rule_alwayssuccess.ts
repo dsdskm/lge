@@ -11,7 +11,7 @@ export const rule_alwaysSuccess: BtRule<typeof alwaysSuccessNodeName> = {
   },
 
   apply: ({ node, outgoing, nodeById, buildAstList }) => {
-    const candidateTargetRefs = outgoing.leftBranches ?? []
+    const candidateTargetRefs = outgoing?.leftBranches ?? []
     const bottomRef = outgoing?.bottom
     const nextTargetRef = outgoing?.right
 
@@ -19,7 +19,7 @@ export const rule_alwaysSuccess: BtRule<typeof alwaysSuccessNodeName> = {
       throw new Error(`AlwaysSuccess 노드는 다음 노드가 없어야 합니다. (node_id=${String(node.id)})`)
     }
 
-    if (candidateTargetRefs) {
+    if (candidateTargetRefs.length > 0) {
       throw new Error(`AlwaysSuccess 노드는 하위 노드가 없어야 합니다. (node_id=${String(node.id)})`)
     }
     if (bottomRef) {

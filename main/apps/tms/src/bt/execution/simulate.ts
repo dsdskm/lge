@@ -27,7 +27,7 @@ import { fallbackOnFailureNodeType } from '../nodes/btFallbackOnFailureNode'
 import { ifThenElseNodeType } from '../nodes/btIfThenElseNode'
 import { repeatNodeType } from '../nodes/btRepeatNode'
 import { reactiveFallbackNodeType } from '../nodes/btReactiveFallbackNode'
-import { actionNodeType } from '../nodes/btActionNode'
+import { actionNodeType, alwaysRunningActionTag } from '../nodes/btActionNode'
 import { reactiveSequenceNodeType } from '../nodes/btReactiveSequenceNode'
 import { sequenceNodeType, type BtSequenceNode } from '../nodes/btSequenceNode'
 import { retryUntilSuccessfulNodeType } from '../nodes/btRetryUntilSuccessfulNode'
@@ -67,6 +67,9 @@ export function buildSimTrace(
   function exec(node: BtAstNode): SimStatus {
     switch (node.kind) {
       case actionNodeType: {
+        // AlwaysRunning 은 캔버스에 없는 합성 액션이므로 resolve 대상이 아니다.
+        if (node.tag === alwaysRunningActionTag) return 'RUNNING'
+
         const nodeId = String(node.attrs?.node_id ?? '')
         const status = resolve(nodeId)
         if (nodeId) trace.push({ nodeId, status })
