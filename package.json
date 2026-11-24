@@ -1,0 +1,17 @@
+{
+  "name": "robot-workflow-portal",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.0.6",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "dev": "concurrently --names api,web,planning,design,simulation,implementation,validation --prefix-colors cyan,magenta,blue,yellow,green,cyan,magenta \"pnpm --filter @workflow/api dev\" \"pnpm --filter @workflow/web dev\" \"pnpm --filter @workflow/planning-agent dev\" \"pnpm --filter @workflow/design-agent dev\" \"pnpm --filter @workflow/simulation-agent dev\" \"pnpm --filter @workflow/implementation-agent dev\" \"pnpm --filter @workflow/validation-agent dev\"",
+    "build": "pnpm --filter @workflow/api build && pnpm --filter @workflow/web build",
+    "test": "pnpm -r --if-present test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

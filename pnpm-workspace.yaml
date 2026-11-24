@@ -1,0 +1,11 @@
+packages:
+  - apps/*
+  - packages/*
+
+publicHoistPattern:
+  - rxjs
+
+onlyBuiltDependencies:
+  - esbuild
+allowBuilds:
+  esbuild: true

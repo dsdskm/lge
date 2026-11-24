@@ -1,0 +1,30 @@
+{
+  "name": "@workflow/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm build && pnpm exec concurrently --kill-others --names compiler,server \"tsc -p tsconfig.json --watch --preserveWatchOutput\" \"node --watch dist/apps/api/src/main.js\"",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/apps/api/src/main.js",
+    "test": "pnpm build && node --test dist/apps/api/src/portal/dto.test.js"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.2.11",
+    "@nestjs/config": "^4.0.4",
+    "@nestjs/core": "^11.2.11",
+    "@nestjs/platform-express": "^11.2.11",
+    "@workflow/shared": "workspace:*",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "pg": "^8.23.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.0.0",
+    "@types/pg": "^8.23.1",
+    "typescript": "^5.9.3"
+  }
+}

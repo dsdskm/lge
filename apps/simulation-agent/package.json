@@ -1,0 +1,15 @@
+{
+  "name": "@workflow/simulation-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --env-file=../../.env --watch src/server.mjs",
+    "start": "node --env-file=../../.env src/server.mjs",
+    "test": "node --test src/simulation.test.mjs"
+  },
+  "dependencies": {
+    "@workflow/agent-runtime": "workspace:*",
+    "@workflow/robot-model": "workspace:*"
+  }
+}

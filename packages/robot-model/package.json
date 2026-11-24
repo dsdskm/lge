@@ -1,0 +1,10 @@
+{
+  "name": "@workflow/robot-model",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.mjs",
+  "dependencies": {
+    "fast-xml-parser": "^5.12.1"
+  }
+}
