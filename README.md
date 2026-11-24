@@ -57,6 +57,8 @@ cp .env.example .env
 
 API는 `.env`의 PostgreSQL 접속 설정을 사용하고, 시작 시 필요한 테이블을 생성합니다. `POSTGRES_USER`와 `POSTGRES_PASSWORD`가 비어 있으면 로컬 OS 사용자와 PostgreSQL의 기본 로컬 인증 설정을 사용합니다.
 
+`./scripts/kill-port.sh`는 인자가 없으면 웹 기본 포트(5173)와 `.env` 또는 환경 변수로 설정된 API, 에이전트, PostgreSQL 포트에서 수신 중인 프로세스를 종료합니다. 해당 포트를 사용하는 다른 프로그램이나 공유 PostgreSQL 서비스도 종료될 수 있습니다. 특정 포트만 종료하려면 `./scripts/kill-port.sh 4310 4321`처럼 지정하세요. Vite가 다른 포트로 자동 변경한 경우에는 해당 포트를 직접 지정해야 합니다.
+
 설계 에이전트는 기본적으로 `DESIGN_AGENT_ENGINE=claude-cli`를 사용하며, 로컬에서 Claude CLI가 인증된 상태여야 합니다. Claude CLI 없이 빠르게 테스트하려면 `.env`에서 `DESIGN_AGENT_ENGINE=template`으로 설정하세요. 두 모드 모두 URDF는 primitive 형상으로 생성하며, 제작용 CAD가 아닙니다.
 
 시뮬레이션은 Mac에서 실행 가능한 2D 운동학 미리보기로, 중력·마찰·슬립·3D 충돌을 계산하지 않습니다. ROS 2 / Gazebo 기반의 물리 검증을 대체하지 않습니다.
